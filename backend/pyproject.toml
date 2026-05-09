@@ -1,0 +1,10 @@
+[project]
+name = "ai-agent-interview-assistant-backend"
+version = "0.1.0"
+description = "Contract-first backend for an agentic technical interview assistant."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
