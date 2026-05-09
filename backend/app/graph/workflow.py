@@ -7,6 +7,9 @@ class InterviewWorkflow(Protocol):
     async def ingest_documents(self, state: InterviewGraphState) -> InterviewGraphState:
         ...
 
+    async def extract_resume_profile(self, state: InterviewGraphState) -> InterviewGraphState:
+        ...
+
     async def profile_candidate(self, state: InterviewGraphState) -> InterviewGraphState:
         ...
 
@@ -30,4 +33,3 @@ class InterviewWorkflow(Protocol):
 
     async def generate_report(self, state: InterviewGraphState) -> InterviewGraphState:
         ...
-

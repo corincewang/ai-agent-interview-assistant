@@ -1,6 +1,11 @@
 from typing import Protocol
 
-from app.domain.models import CandidateProfile, InterviewPlan, JobAnalysis, SourceCitation
+from app.domain.models import CandidateProfile, InterviewPlan, JobAnalysis, ResumeProfile, SourceCitation
+
+
+class ResumeExtractorAgent(Protocol):
+    async def run(self) -> ResumeProfile:
+        ...
 
 
 class CandidateProfilerAgent(Protocol):
@@ -36,4 +41,3 @@ class LiveInterviewerAgent(Protocol):
 class EvaluatorAgent(Protocol):
     async def run(self) -> str:
         ...
-

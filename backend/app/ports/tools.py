@@ -2,16 +2,16 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.models import DocumentChunk, DocumentType, InterviewTurn, SourceCitation
+from app.domain.models import DocumentChunk, DocumentType, InterviewTurn, ParsedDocument, SourceCitation
 
 
 class DocumentParsingTool(Protocol):
-    async def parse_document(self, file_path: Path, document_type: DocumentType) -> str:
+    async def parse_document(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
         ...
 
 
 class ChunkingTool(Protocol):
-    async def chunk_document(self, document_id: UUID, text: str) -> list[DocumentChunk]:
+    async def chunk_document(self, document: ParsedDocument) -> list[DocumentChunk]:
         ...
 
 
@@ -57,4 +57,3 @@ class InterviewPersistenceTool(Protocol):
 
     async def load_interview_turns(self, session_id: UUID) -> list[InterviewTurn]:
         ...
-

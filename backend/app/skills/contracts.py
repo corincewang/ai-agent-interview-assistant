@@ -8,12 +8,28 @@ from app.domain.models import (
     InterviewQuestion,
     InterviewTurn,
     JobAnalysis,
+    ParsedDocument,
+    ResumeProfile,
     SourceCitation,
 )
 
 
+class ResumeExtractionSkill(Protocol):
+    async def extract_resume_profile(
+        self,
+        user_id: UUID,
+        parsed_resume: ParsedDocument,
+    ) -> ResumeProfile:
+        ...
+
+
 class CandidateProfilingSkill(Protocol):
-    async def build_candidate_profile(self, user_id: UUID, session_id: UUID) -> CandidateProfile:
+    async def build_candidate_profile(
+        self,
+        user_id: UUID,
+        session_id: UUID,
+        resume_profile: ResumeProfile,
+    ) -> CandidateProfile:
         ...
 
 
@@ -97,4 +113,3 @@ class ReportGenerationSkill(Protocol):
         evaluations: list[AnswerEvaluation],
     ) -> str:
         ...
-

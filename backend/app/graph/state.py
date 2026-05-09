@@ -1,7 +1,15 @@
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from app.domain.models import CandidateProfile, InterviewPlan, InterviewTurn, JobAnalysis, SourceCitation
+from app.domain.models import (
+    CandidateProfile,
+    InterviewPlan,
+    InterviewTurn,
+    JobAnalysis,
+    ParsedDocument,
+    ResumeProfile,
+    SourceCitation,
+)
 
 
 @dataclass
@@ -11,6 +19,8 @@ class InterviewGraphState:
     company_name: str
     role_title: str
     jd_text: str
+    parsed_documents: list[ParsedDocument] = field(default_factory=list)
+    resume_profile: ResumeProfile | None = None
     candidate_profile: CandidateProfile | None = None
     job_analysis: JobAnalysis | None = None
     company_sources: list[SourceCitation] = field(default_factory=list)
@@ -18,4 +28,3 @@ class InterviewGraphState:
     interview_plan: InterviewPlan | None = None
     transcript: list[InterviewTurn] = field(default_factory=list)
     final_report: str | None = None
-

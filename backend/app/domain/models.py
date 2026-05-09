@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
@@ -34,6 +34,24 @@ class SourceCitation:
 
 
 @dataclass(frozen=True)
+class SourceSpan:
+    document_id: UUID
+    page_number: int | None
+    start_char: int | None
+    end_char: int | None
+    text_excerpt: str
+
+
+@dataclass(frozen=True)
+class ParsedDocument:
+    id: UUID
+    document_type: DocumentType
+    raw_text: str
+    source_spans: list[SourceSpan]
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class DocumentChunk:
     id: UUID
     document_id: UUID
@@ -42,13 +60,94 @@ class DocumentChunk:
 
 
 @dataclass(frozen=True)
+class EducationItem:
+    institution: str
+    degree: str
+    majors: list[str]
+    minors: list[str]
+    graduation_date: str | None
+    gpa: str | None
+    evidence: list[SourceSpan]
+
+
+@dataclass(frozen=True)
+class SkillInventory:
+    programming_languages: list[str] = field(default_factory=list)
+    frameworks: list[str] = field(default_factory=list)
+    cloud_and_devops: list[str] = field(default_factory=list)
+    databases: list[str] = field(default_factory=list)
+    ai_agent_stack: list[str] = field(default_factory=list)
+    mobile_stack: list[str] = field(default_factory=list)
+    testing_stack: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class LanguageProficiency:
+    language: str
+    level: str
+    evidence: list[SourceSpan]
+
+
+@dataclass(frozen=True)
+class QuantifiedImpact:
+    metric: str
+    value: str
+    context: str
+    evidence: list[SourceSpan]
+
+
+@dataclass(frozen=True)
+class WorkExperience:
+    company: str
+    location: str | None
+    title: str
+    employment_type: str | None
+    start_date: str | None
+    end_date: str | None
+    responsibilities: list[str]
+    technologies: list[str]
+    quantified_impacts: list[QuantifiedImpact]
+    evidence: list[SourceSpan]
+
+
+@dataclass(frozen=True)
+class ProjectExperience:
+    name: str
+    role: str | None
+    start_date: str | None
+    end_date: str | None
+    summary: str
+    technologies: list[str]
+    architecture_notes: list[str]
+    quantified_impacts: list[QuantifiedImpact]
+    links: list[str]
+    evidence: list[SourceSpan]
+
+
+@dataclass(frozen=True)
+class ResumeProfile:
+    user_id: UUID
+    name: str | None
+    education: list[EducationItem]
+    skills: SkillInventory
+    languages: list[LanguageProficiency]
+    work_experiences: list[WorkExperience]
+    project_experiences: list[ProjectExperience]
+    portfolio_links: list[str]
+    extraction_warnings: list[str]
+
+
+@dataclass(frozen=True)
 class CandidateProfile:
     user_id: UUID
+    resume_profile: ResumeProfile
     technical_skills: list[str]
     project_highlights: list[str]
     risk_areas: list[str]
     follow_up_targets: list[str]
-    evidence: list[SourceCitation]
+    strongest_signals: list[str]
+    interview_positioning: str
+    evidence: list[SourceSpan | SourceCitation]
 
 
 @dataclass(frozen=True)
@@ -78,6 +177,8 @@ class InterviewPlan:
     mode: InterviewMode
     questions: list[InterviewQuestion]
     rubric: dict[str, str]
+    candidate_storyline: str
+    planned_deep_dives: list[str]
 
 
 @dataclass(frozen=True)
@@ -96,4 +197,3 @@ class AnswerEvaluation:
     weaknesses: list[str]
     improved_answer: str
     next_practice_steps: list[str]
-
