@@ -1,6 +1,13 @@
 from typing import Protocol
 
-from app.domain.models import CandidateProfile, InterviewPlan, JobAnalysis, ResumeProfile, SourceCitation
+from app.domain.models import (
+    CandidateJobMatch,
+    CandidateProfile,
+    InterviewPlan,
+    JobAnalysis,
+    ResumeProfile,
+    SourceCitation,
+)
 
 
 class ResumeExtractorAgent(Protocol):
@@ -15,6 +22,11 @@ class CandidateProfilerAgent(Protocol):
 
 class JDAnalyzerAgent(Protocol):
     async def run(self) -> JobAnalysis:
+        ...
+
+
+class CandidateJobMatcherAgent(Protocol):
+    async def run(self) -> CandidateJobMatch:
         ...
 
 

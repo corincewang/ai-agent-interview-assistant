@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from app.domain.models import (
+    CandidateJobMatch,
     CandidateProfile,
     InterviewPlan,
     InterviewTurn,
@@ -23,6 +24,7 @@ class InterviewGraphState:
     resume_profile: ResumeProfile | None = None
     candidate_profile: CandidateProfile | None = None
     job_analysis: JobAnalysis | None = None
+    candidate_job_match: CandidateJobMatch | None = None
     company_sources: list[SourceCitation] = field(default_factory=list)
     interview_intel: list[SourceCitation] = field(default_factory=list)
     interview_plan: InterviewPlan | None = None

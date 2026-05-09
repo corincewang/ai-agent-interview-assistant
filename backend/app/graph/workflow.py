@@ -16,6 +16,9 @@ class InterviewWorkflow(Protocol):
     async def analyze_jd(self, state: InterviewGraphState) -> InterviewGraphState:
         ...
 
+    async def match_candidate_to_job(self, state: InterviewGraphState) -> InterviewGraphState:
+        ...
+
     async def research_company(self, state: InterviewGraphState) -> InterviewGraphState:
         ...
 

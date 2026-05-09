@@ -157,8 +157,15 @@ class JobAnalysis:
     required_skills: list[str]
     preferred_skills: list[str]
     responsibilities: list[str]
+
+
+@dataclass(frozen=True)
+class CandidateJobMatch:
+    session_id: UUID
     candidate_matches: list[str]
     candidate_gaps: list[str]
+    role_specific_risk_areas: list[str]
+    recommended_positioning: str
 
 
 @dataclass(frozen=True)
