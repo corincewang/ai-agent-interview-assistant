@@ -10,6 +10,7 @@ from app.domain.models import (
     InterviewTurn,
     JobAnalysis,
     ParsedDocument,
+    ResearchFinding,
     ResumeProfile,
     SourceCitation,
 )
@@ -71,7 +72,7 @@ class CompanyResearchSkill(Protocol):
         company_name: str,
         role_title: str,
         jd_analysis: JobAnalysis,
-    ) -> list[SourceCitation]:
+    ) -> list[ResearchFinding]:
         ...
 
 
@@ -83,7 +84,7 @@ class InterviewIntelSkill(Protocol):
         company_name: str,
         role_title: str,
         topics: list[str],
-    ) -> list[SourceCitation]:
+    ) -> list[ResearchFinding]:
         ...
 
 
@@ -96,8 +97,8 @@ class InterviewPlanningSkill(Protocol):
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
-        company_sources: list[SourceCitation],
-        interview_intel: list[SourceCitation],
+        company_sources: list[ResearchFinding],
+        interview_intel: list[ResearchFinding],
     ) -> InterviewPlan:
         ...
 

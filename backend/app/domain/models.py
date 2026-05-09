@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
@@ -26,11 +27,25 @@ class InterviewTurnRole(str, Enum):
 
 
 @dataclass(frozen=True)
+class DocumentInput:
+    file_path: Path
+    document_type: DocumentType
+
+
+@dataclass(frozen=True)
 class SourceCitation:
     title: str
     url: str | None
     source_type: DocumentType
     confidence: float
+
+
+@dataclass(frozen=True)
+class ResearchFinding:
+    citation: SourceCitation
+    summary: str
+    relevant_topics: list[str]
+    extracted_signals: list[str]
 
 
 @dataclass(frozen=True)

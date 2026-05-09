@@ -8,7 +8,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     JobAnalysis,
-    SourceCitation,
+    ResearchFinding,
 )
 
 
@@ -42,8 +42,8 @@ class LLMInterviewPlanningSkill:
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
-        company_sources: list[SourceCitation],
-        interview_intel: list[SourceCitation],
+        company_sources: list[ResearchFinding],
+        interview_intel: list[ResearchFinding],
     ) -> InterviewPlan:
         structured_llm = self.llm.with_structured_output(InterviewPlan)
         chain = self.prompt | structured_llm
@@ -57,4 +57,3 @@ class LLMInterviewPlanningSkill:
                 "interview_intel": interview_intel,
             }
         )
-

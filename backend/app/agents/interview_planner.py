@@ -5,7 +5,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     JobAnalysis,
-    SourceCitation,
+    ResearchFinding,
 )
 from app.skills.contracts import InterviewPlanningSkill
 
@@ -17,8 +17,8 @@ class InterviewPlannerAgent:
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
-        company_sources: list[SourceCitation],
-        interview_intel: list[SourceCitation],
+        company_sources: list[ResearchFinding],
+        interview_intel: list[ResearchFinding],
         interview_planning_skill: InterviewPlanningSkill,
     ) -> None:
         self.session_id = session_id
@@ -38,4 +38,3 @@ class InterviewPlannerAgent:
             company_sources=self.company_sources,
             interview_intel=self.interview_intel,
         )
-

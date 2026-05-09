@@ -5,6 +5,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     JobAnalysis,
+    ResearchFinding,
     ResumeProfile,
     SourceCitation,
 )
@@ -31,12 +32,12 @@ class CandidateJobMatcherAgent(Protocol):
 
 
 class CompanyResearchAgent(Protocol):
-    async def run(self) -> list[SourceCitation]:
+    async def run(self) -> list[ResearchFinding]:
         ...
 
 
 class InterviewIntelAgent(Protocol):
-    async def run(self) -> list[SourceCitation]:
+    async def run(self) -> list[ResearchFinding]:
         ...
 
 
@@ -46,10 +47,22 @@ class InterviewPlannerAgent(Protocol):
 
 
 class LiveInterviewerAgent(Protocol):
-    async def run_turn(self) -> str:
+    async def select_next_question(self) -> InterviewQuestion:
+        ...
+
+    async def decide_follow_up(
+        self,
+        current_question: InterviewQuestion,
+        candidate_answer: str,
+    ) -> InterviewQuestion | None:
         ...
 
 
 class EvaluatorAgent(Protocol):
+    async def run(self) -> AnswerEvaluation:
+        ...
+
+
+class ReportGeneratorAgent(Protocol):
     async def run(self) -> str:
         ...
