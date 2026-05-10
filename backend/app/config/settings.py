@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import os
 
+from dotenv import load_dotenv
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -10,6 +12,8 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    load_dotenv()
+
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -23,4 +27,3 @@ def _read_bool(name: str, default: bool) -> bool:
         return default
 
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
-

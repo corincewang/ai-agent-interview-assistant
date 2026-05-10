@@ -8,14 +8,17 @@ export type DocumentType =
 export type InterviewMode = "frontend" | "backend" | "ai_agent" | "general_swe";
 
 export interface CreateInterviewSessionRequest {
-  companyName: string;
-  roleTitle: string;
-  jobDescription: string;
+  company_name: string;
+  role_title: string;
+  job_description: string;
   mode: InterviewMode;
 }
 
 export interface CreateInterviewSessionResponse {
-  sessionId: string;
+  session_id: string;
+  company_name: string;
+  role_title: string;
+  mode: InterviewMode;
 }
 
 export interface UploadDocumentRequest {
@@ -36,18 +39,32 @@ export interface InterviewQuestionView {
   prompt: string;
   topic: string;
   difficulty: "easy" | "medium" | "hard";
-  expectedSignals: string[];
+  expected_signals: string[];
+  follow_up_strategy: string[];
 }
 
 export interface SubmitAnswerRequest {
-  sessionId: string;
-  questionId: string;
+  question_id: string;
   answer: string;
 }
 
 export interface SubmitAnswerResponse {
-  nextQuestion: InterviewQuestionView | null;
-  followUpQuestion: InterviewQuestionView | null;
+  session_id: string;
+  follow_up_question: InterviewQuestionView | null;
+}
+
+export interface PrepareSessionResponse {
+  session_id: string;
+  interview_plan: InterviewPlanView;
+}
+
+export interface InterviewPlanView {
+  session_id: string;
+  mode: InterviewMode;
+  questions: InterviewQuestionView[];
+  rubric: Record<string, string>;
+  candidate_storyline: string;
+  planned_deep_dives: string[];
 }
 
 export interface InterviewReportView {
@@ -58,4 +75,3 @@ export interface InterviewReportView {
   weaknesses: string[];
   nextPracticeSteps: string[];
 }
-
