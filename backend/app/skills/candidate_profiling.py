@@ -4,6 +4,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.domain.models import CandidateProfile, ResumeProfile
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMCandidateProfilingSkill:
@@ -34,11 +35,11 @@ class LLMCandidateProfilingSkill:
     ) -> CandidateProfile:
         structured_llm = self.llm.with_structured_output(CandidateProfile)
         chain = self.prompt | structured_llm
-        return await chain.ainvoke(
+        extracted = await chain.ainvoke(
             {
                 "user_id": str(user_id),
                 "session_id": str(session_id),
                 "resume_profile": resume_profile,
             }
         )
-
+        return coerce_dataclass(CandidateProfile, extracted)

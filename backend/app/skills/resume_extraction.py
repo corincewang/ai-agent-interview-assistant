@@ -11,6 +11,7 @@ from app.domain.models import (
     SkillInventory,
     WorkExperience,
 )
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMResumeExtractionSkill:
@@ -44,7 +45,8 @@ class LLMResumeExtractionSkill:
             }
         )
 
-        return self._attach_extraction_warnings(extracted, parsed_resume)
+        profile = coerce_dataclass(ResumeProfile, extracted)
+        return self._attach_extraction_warnings(profile, parsed_resume)
 
     def _attach_extraction_warnings(
         self,
@@ -79,4 +81,3 @@ class LLMResumeExtractionSkill:
 
         noisy_chars = sum(1 for char in text if "\u0e00" <= char <= "\u0fff")
         return noisy_chars / max(len(text), 1) > 0.03
-

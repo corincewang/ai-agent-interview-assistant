@@ -3,6 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.domain.models import JobAnalysis, ResearchFinding, SourceCitation
 from app.ports.tools import PageFetchTool, WebSearchTool
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMCompanyResearchSkill:
@@ -98,7 +99,7 @@ class LLMCompanyResearchSkill:
 
         structured_llm = self.llm.with_structured_output(ResearchFinding)
         chain = self.prompt | structured_llm
-        return await chain.ainvoke(
+        extracted = await chain.ainvoke(
             {
                 "company_name": company_name,
                 "role_title": role_title,
@@ -107,4 +108,4 @@ class LLMCompanyResearchSkill:
                 "source_text": source_text[:8000],
             }
         )
-
+        return coerce_dataclass(ResearchFinding, extracted)

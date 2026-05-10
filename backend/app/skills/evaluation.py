@@ -4,6 +4,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.domain.models import AnswerEvaluation, InterviewQuestion
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMAnswerEvaluationSkill:
@@ -34,11 +35,11 @@ class LLMAnswerEvaluationSkill:
     ) -> AnswerEvaluation:
         structured_llm = self.llm.with_structured_output(AnswerEvaluation)
         chain = self.prompt | structured_llm
-        return await chain.ainvoke(
+        extracted = await chain.ainvoke(
             {
                 "session_id": str(session_id),
                 "question": question,
                 "candidate_answer": candidate_answer,
             }
         )
-
+        return coerce_dataclass(AnswerEvaluation, extracted)

@@ -10,6 +10,7 @@ from app.domain.models import (
     JobAnalysis,
     ResearchFinding,
 )
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMInterviewPlanningSkill:
@@ -47,7 +48,7 @@ class LLMInterviewPlanningSkill:
     ) -> InterviewPlan:
         structured_llm = self.llm.with_structured_output(InterviewPlan)
         chain = self.prompt | structured_llm
-        return await chain.ainvoke(
+        extracted = await chain.ainvoke(
             {
                 "session_id": str(session_id),
                 "candidate_profile": candidate_profile,
@@ -57,3 +58,4 @@ class LLMInterviewPlanningSkill:
                 "interview_intel": interview_intel,
             }
         )
+        return coerce_dataclass(InterviewPlan, extracted)

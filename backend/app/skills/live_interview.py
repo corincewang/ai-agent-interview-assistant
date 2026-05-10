@@ -4,6 +4,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.domain.models import InterviewPlan, InterviewQuestion, InterviewTurn
+from app.utils.dataclass_mapping import coerce_dataclass
 
 
 class LLMLiveInterviewSkill:
@@ -72,9 +73,9 @@ class LLMLiveInterviewSkill:
         if len(candidate_answer.strip()) < 80:
             return self._build_short_answer_follow_up(current_question)
 
-        structured_llm = self.llm.with_structured_output(InterviewQuestion | None)
+        structured_llm = self.llm.with_structured_output(InterviewQuestion)
         chain = self.follow_up_prompt | structured_llm
-        return await chain.ainvoke(
+        extracted = await chain.ainvoke(
             {
                 "session_id": str(session_id),
                 "current_question": current_question,
@@ -82,6 +83,7 @@ class LLMLiveInterviewSkill:
                 "transcript": transcript,
             }
         )
+        return coerce_dataclass(InterviewQuestion, extracted)
 
     def _first_unanswered_question(
         self,
@@ -112,4 +114,3 @@ class LLMLiveInterviewSkill:
             expected_signals=current_question.expected_signals,
             follow_up_strategy=current_question.follow_up_strategy,
         )
-
