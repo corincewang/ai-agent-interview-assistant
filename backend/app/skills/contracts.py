@@ -6,6 +6,7 @@ from app.domain.models import (
     CandidateJobMatch,
     CandidateProfile,
     InterviewPlan,
+    InterviewPlanCritique,
     InterviewQuestion,
     InterviewTurn,
     JobAnalysis,
@@ -102,6 +103,21 @@ class InterviewPlanningSkill(Protocol):
         interview_intel: list[ResearchFinding],
         knowledge_context: KnowledgeRetrievalResult | None = None,
     ) -> InterviewPlan:
+        ...
+
+
+class InterviewPlanCriticSkill(Protocol):
+    """Evaluate an interview plan against grounding, coverage, and follow-up quality gates."""
+
+    async def critique_interview_plan(
+        self,
+        session_id: UUID,
+        interview_plan: InterviewPlan,
+        candidate_profile: CandidateProfile,
+        job_analysis: JobAnalysis,
+        candidate_job_match: CandidateJobMatch,
+        knowledge_context: KnowledgeRetrievalResult | None = None,
+    ) -> InterviewPlanCritique:
         ...
 
 

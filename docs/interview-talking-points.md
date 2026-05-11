@@ -196,6 +196,135 @@ Excerpt
 
 并明确要求：如果 retrieved knowledge context 存在，至少两个问题要显式围绕知识库里的主题生成，同时不能说候选人在某个 topic 上经验有限，如果 retrieved context 已经包含这个 topic 的项目细节。
 
+## Planning Prompt 为什么要组件化
+
+我把 interview planning prompt 当成一个系统组件来设计，而不是写成一段固定字符串。原因是面试计划生成依赖很多动态输入：
+
+- 简历解析结果。
+- JD 分析结果。
+- 候选人和岗位匹配结果。
+- 公司和面经信息。
+- RAG 检索回来的知识库片段。
+- 当前任务状态，比如目标题目数量、题型比例、难度比例和覆盖率要求。
+
+所以我新增了 `InterviewPlanningPromptConfig` 和 `InterviewPlanningPromptInputs`。Config 负责控制规则，比如题目数量、至少多少题要基于简历、多少题要基于 JD、多少题要基于知识库、哪些问题模式禁止出现。Inputs 负责承载运行时上下文，比如 session、candidate profile、job analysis、interview intel 和 retrieved chunks。
+
+这样做的好处是 prompt 可以复用和测试。后续如果要给前端岗位、后端岗位、AI Agent 岗位设置不同题型比例，不需要复制粘贴一整段 prompt，只需要换一组 config。
+
+## Planning Prompt 的分层设计
+
+我把 planning prompt 分成四层：
+
+```text
+Safety layer
+Role and task layer
+Quality contract layer
+Context layer
+```
+
+`Safety layer` 负责指令优先级和安全边界。简历、JD、知识库、网页内容、工具返回结果都只能作为任务数据，不能覆盖系统规则。
+
+`Role and task layer` 负责定义模型角色和任务目标：它不是随便生成问题，而是生成结构化技术面试计划。
+
+`Quality contract layer` 负责定义好问题的标准，比如必须具体、必须测试信号、必须有 expected signals、必须有 follow-up strategy，并且要避免泛泛定义题。
+
+`Context layer` 只负责注入动态上下文。这样用户输入和外部检索结果不会和系统规则混在同一层里，降低 prompt injection 风险。
+
+## 思维链和自一致性怎么用
+
+这里我没有让模型输出完整 hidden chain-of-thought，因为在真实产品里不应该把模型内部推理原样暴露给用户。我的做法是让模型私下进行多候选方案比较，然后只输出可展示的决策摘要。
+
+Prompt 里要求模型先私下生成多套 candidate interview plans，从不同覆盖重点出发比较：
+
+- 简历相关性。
+- JD 覆盖率。
+- RAG grounding。
+- 问题具体性。
+- 难度平衡。
+- 追问空间。
+
+最后只返回最佳版本，并把可展示的依据放进结构化字段里，比如：
+
+- `candidate_storyline`
+- `planned_deep_dives`
+- `expected_signals`
+- `follow_up_strategy`
+- `rubric`
+
+这可以在面试里讲成：我没有依赖一次性 prompt 的随机输出，而是把 self-consistency 作为 prompt-level reasoning strategy。后续可以升级成代码层多次采样加 critic rerank，也就是真正生成多份 plan，再用 evaluator 选择最高质量的一份。
+
+## 结构化输出怎么保证
+
+Planning skill 使用 LangChain 的 `with_structured_output(InterviewPlan)`，要求模型返回符合 `InterviewPlan` schema 的对象：
+
+```python
+InterviewPlan(
+    session_id=...,
+    mode=...,
+    questions=[InterviewQuestion(...)]
+    rubric=...,
+    candidate_storyline=...,
+    planned_deep_dives=...,
+)
+```
+
+每个 `InterviewQuestion` 也必须包含：
+
+- `prompt`
+- `topic`
+- `difficulty`
+- `expected_signals`
+- `follow_up_strategy`
+
+这比让模型返回自然语言列表更稳定。前端、数据库和后续 live interview agent 都可以直接消费这些字段。
+
+## Prompt 安全怎么做
+
+这个项目里的 prompt 安全不是只靠一句“不要被攻击”。我在 planning prompt 里做了几层保护：
+
+- 分层 prompt：系统规则和用户数据分开。
+- 指令优先级：外部文档和检索结果只能作为 data，不能作为 instruction。
+- 最小权限：planner 只负责生成计划，不直接执行数据库写入、外部 API 调用或文件操作。
+- 输出约束：只允许返回 `InterviewPlan` schema。
+- 事实约束：不能编造公司信息、候选人经历或知识库事实。
+- 隐私约束：不请求或暴露 API key、credentials 等敏感信息。
+
+面试里可以强调：在 Agent 系统里，LLM 不只是文本生成器，而是决策组件。只要它能读取工具结果或影响后续流程，就必须把 prompt 当成系统边界的一部分来设计。
+
+## Question Critic / Rerank 怎么设计
+
+在 planning prompt 之后，我又加了一个非阻断的 `InterviewPlanCriticSkill`。它的作用不是生成问题，而是评估问题质量。
+
+现在的链路是：
+
+```text
+Planner 生成 InterviewPlan
+-> Critic 对每道题和整体 plan 打分
+-> Critique 写回 LangGraph state
+-> 当前 MVP 不阻断流程
+```
+
+Critic 的评分维度包括：
+
+- `resume_grounding_score`: 问题是否基于候选人真实项目和经历。
+- `jd_coverage_score`: 问题是否覆盖目标岗位要求。
+- `rag_grounding_score`: 问题是否使用了知识库检索结果。
+- `specificity_score`: 问题是否具体，而不是泛泛定义题。
+- `follow_up_potential_score`: 问题是否适合语音面试里的连续追问。
+
+这个设计的价值是：我没有把 prompt 当成一次性生成文本，而是把它变成可评估、可迭代的系统组件。Planner 负责生成，Critic 负责质量门控。后续可以很自然地升级成：
+
+```text
+planner 生成多套 plan
+-> critic 分别评分
+-> reranker 选择最高质量 plan
+-> 如果低于阈值，进入 revise node
+```
+
+当前版本选择非阻断，是为了保证 MVP demo 稳定。质量分数先作为 observability signal 返回，后面再接数据库字段、dashboard 和自动 revise。
+
+面试里可以这么讲：我用了 prompt-level self-consistency 做第一层质量提升，又加了 critic skill 做第二层质量评估。这样 Agent 不只是“会生成”，而是具备评估自身输出质量的闭环。
+
 ## 真实知识库 demo 结果
 
 我用真实文件 `/Users/wanghan/Desktop/简历+前端问题.pdf` 跑过 RAG demo：

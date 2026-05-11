@@ -237,6 +237,29 @@ class InterviewPlan:
 
 
 @dataclass(frozen=True)
+class QuestionCritique:
+    question_id: UUID
+    resume_grounding_score: float
+    jd_coverage_score: float
+    rag_grounding_score: float
+    specificity_score: float
+    follow_up_potential_score: float
+    overall_score: float
+    strengths: list[str]
+    improvement_suggestions: list[str]
+
+
+@dataclass(frozen=True)
+class InterviewPlanCritique:
+    session_id: UUID
+    overall_score: float
+    quality_gate_passed: bool
+    question_critiques: list[QuestionCritique]
+    coverage_summary: dict[str, str]
+    revision_recommendations: list[str]
+
+
+@dataclass(frozen=True)
 class InterviewTurn:
     session_id: UUID
     role: InterviewTurnRole

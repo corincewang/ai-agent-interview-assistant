@@ -7,6 +7,7 @@ from app.domain.models import (
     DocumentChunk,
     DocumentInput,
     InterviewPlan,
+    InterviewPlanCritique,
     InterviewTurn,
     JobAnalysis,
     KnowledgeIndexingResult,
@@ -36,5 +37,6 @@ class InterviewGraphState:
     company_sources: list[ResearchFinding] = field(default_factory=list)
     interview_intel: list[ResearchFinding] = field(default_factory=list)
     interview_plan: InterviewPlan | None = None
+    interview_plan_critique: InterviewPlanCritique | None = None
     transcript: list[InterviewTurn] = field(default_factory=list)
     final_report: str | None = None

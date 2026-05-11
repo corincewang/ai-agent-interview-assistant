@@ -6,6 +6,7 @@ from app.agents.candidate_job_matcher import CandidateJobMatcherAgent
 from app.agents.candidate_profiler import CandidateProfilerAgent
 from app.agents.company_researcher import CompanyResearchAgent
 from app.agents.interview_intel_collector import InterviewIntelAgent
+from app.agents.interview_plan_critic import InterviewPlanCriticAgent
 from app.agents.interview_planner import InterviewPlannerAgent
 from app.agents.jd_analyzer import JDAnalyzerAgent
 from app.agents.resume_extractor import ResumeExtractorAgent
@@ -22,6 +23,7 @@ from app.skills.contracts import (
     CandidateProfilingSkill,
     CompanyResearchSkill,
     InterviewIntelSkill,
+    InterviewPlanCriticSkill,
     JDAnalysisSkill,
     InterviewPlanningSkill,
     ResumeExtractionSkill,
@@ -40,6 +42,7 @@ class LangGraphInterviewWorkflow:
         company_research_skill: CompanyResearchSkill | None = None,
         interview_intel_skill: InterviewIntelSkill | None = None,
         interview_planning_skill: InterviewPlanningSkill | None = None,
+        interview_plan_critic_skill: InterviewPlanCriticSkill | None = None,
         knowledge_base_indexer: KnowledgeBaseIndexer | None = None,
         knowledge_retrieval_tool: KnowledgeRetrievalTool | None = None,
     ) -> None:
@@ -52,6 +55,7 @@ class LangGraphInterviewWorkflow:
         self.company_research_skill = company_research_skill
         self.interview_intel_skill = interview_intel_skill
         self.interview_planning_skill = interview_planning_skill
+        self.interview_plan_critic_skill = interview_plan_critic_skill
         self.knowledge_base_indexer = knowledge_base_indexer
         self.knowledge_retrieval_tool = knowledge_retrieval_tool
 
@@ -278,6 +282,31 @@ class LangGraphInterviewWorkflow:
         interview_plan = await agent.run()
         return replace(state, interview_plan=interview_plan)
 
+    async def critique_interview_plan(self, state: InterviewGraphState) -> InterviewGraphState:
+        if self.interview_plan_critic_skill is None:
+            return state
+
+        if state.interview_plan is None:
+            raise ValueError("interview_plan is required before critique")
+        if state.candidate_profile is None:
+            raise ValueError("candidate_profile is required before critique")
+        if state.job_analysis is None:
+            raise ValueError("job_analysis is required before critique")
+        if state.candidate_job_match is None:
+            raise ValueError("candidate_job_match is required before critique")
+
+        agent = InterviewPlanCriticAgent(
+            session_id=state.session_id,
+            interview_plan=state.interview_plan,
+            candidate_profile=state.candidate_profile,
+            job_analysis=state.job_analysis,
+            candidate_job_match=state.candidate_job_match,
+            interview_plan_critic_skill=self.interview_plan_critic_skill,
+            knowledge_context=state.planning_knowledge_context,
+        )
+        interview_plan_critique = await agent.run()
+        return replace(state, interview_plan_critique=interview_plan_critique)
+
     async def run_live_turn(self, state: InterviewGraphState) -> InterviewGraphState:
         return state
 
@@ -300,6 +329,7 @@ class LangGraphInterviewWorkflow:
         graph.add_node("collect_interview_intel", self.collect_interview_intel)
         graph.add_node("retrieve_planning_context", self.retrieve_planning_context)
         graph.add_node("plan_interview", self.plan_interview)
+        graph.add_node("critique_interview_plan", self.critique_interview_plan)
 
         graph.add_edge(START, "ingest_documents")
         graph.add_edge("ingest_documents", "index_knowledge_base")
@@ -311,7 +341,8 @@ class LangGraphInterviewWorkflow:
         graph.add_edge("research_company", "collect_interview_intel")
         graph.add_edge("collect_interview_intel", "retrieve_planning_context")
         graph.add_edge("retrieve_planning_context", "plan_interview")
-        graph.add_edge("plan_interview", END)
+        graph.add_edge("plan_interview", "critique_interview_plan")
+        graph.add_edge("critique_interview_plan", END)
 
         return graph.compile()
 

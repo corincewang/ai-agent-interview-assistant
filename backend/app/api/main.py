@@ -116,6 +116,9 @@ async def prepare_interview_session(session_id: UUID) -> PrepareSessionResponse:
     return PrepareSessionResponse(
         session_id=session_id,
         interview_plan=to_jsonable(interview_plan),
+        interview_plan_critique=to_jsonable(
+            store.require_session(session_id).prepared_state.get("interview_plan_critique")
+        ),
     )
 
 

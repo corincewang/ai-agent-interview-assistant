@@ -28,6 +28,7 @@ from app.skills.candidate_profiling import LLMCandidateProfilingSkill
 from app.skills.company_research import LLMCompanyResearchSkill
 from app.skills.evaluation import LLMAnswerEvaluationSkill
 from app.skills.interview_intel import LLMInterviewIntelSkill
+from app.skills.interview_plan_critic import LLMInterviewPlanCriticSkill
 from app.skills.interview_planning import LLMInterviewPlanningSkill
 from app.skills.jd_analysis import LLMJDAnalysisSkill
 from app.skills.live_interview import LLMLiveInterviewSkill
@@ -146,6 +147,7 @@ class InterviewService:
                 page_fetch_tool=mock_page_fetch_tool,
             ),
             interview_planning_skill=LLMInterviewPlanningSkill(llm),
+            interview_plan_critic_skill=LLMInterviewPlanCriticSkill(llm),
             knowledge_base_indexer=DefaultKnowledgeBaseIndexer(
                 chunking_tool=chunking_tool,
                 embedding_provider=embedding_provider,

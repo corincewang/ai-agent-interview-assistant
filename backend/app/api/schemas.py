@@ -28,6 +28,7 @@ class UploadDocumentResponse(BaseModel):
 class PrepareSessionResponse(BaseModel):
     session_id: UUID
     interview_plan: dict
+    interview_plan_critique: dict | None = None
 
 
 class InterviewPlanResponse(BaseModel):
