@@ -9,6 +9,7 @@ from app.domain.models import (
     AnswerEvaluation,
     DocumentInput,
     DocumentType,
+    InterviewMode,
     InterviewPlan,
     InterviewQuestion,
     InterviewTurn,
@@ -17,6 +18,7 @@ from app.domain.models import (
 from app.graph.langgraph_workflow import LangGraphInterviewWorkflow
 from app.graph.state import InterviewGraphState
 from app.providers.llm import build_chat_model
+from app.services.postgres_persistence import OptionalPostgresPersistence
 from app.services.session_store import InterviewSessionRecord, InMemoryInterviewSessionStore
 from app.skills.candidate_job_matching import LLMCandidateJobMatchingSkill
 from app.skills.candidate_profiling import LLMCandidateProfilingSkill
@@ -36,6 +38,23 @@ from app.tools.mock_research import MockPageFetchTool, MockWebSearchTool
 class InterviewService:
     def __init__(self, store: InMemoryInterviewSessionStore) -> None:
         self.store = store
+        self.persistence = OptionalPostgresPersistence(load_settings())
+
+    async def create_session(
+        self,
+        company_name: str,
+        role_title: str,
+        jd_text: str,
+        mode: InterviewMode,
+    ) -> InterviewSessionRecord:
+        session = self.store.create_session(
+            company_name=company_name,
+            role_title=role_title,
+            jd_text=jd_text,
+            mode=mode,
+        )
+        await self.persistence.persist_session(session)
+        return session
 
     def add_document(
         self,
@@ -90,6 +109,7 @@ class InterviewService:
 
         session.prepared_state = prepared_state
         session.interview_plan = interview_plan
+        await self.persistence.persist_prepared_session(session)
         return interview_plan
 
     def get_interview_plan(self, session_id: UUID) -> InterviewPlan:
@@ -135,10 +155,12 @@ class InterviewService:
             transcript=session.transcript,
             live_interview_skill=LLMLiveInterviewSkill(llm),
         )
-        return await live_agent.decide_follow_up(
+        follow_up = await live_agent.decide_follow_up(
             current_question=question,
             candidate_answer=answer,
         )
+        await self.persistence.persist_transcript(session)
+        return follow_up
 
     async def evaluate_session(self, session_id: UUID) -> list[AnswerEvaluation]:
         session = self.store.require_session(session_id)
@@ -165,6 +187,7 @@ class InterviewService:
             evaluations.append(await evaluator.run())
 
         session.evaluations = evaluations
+        await self.persistence.persist_evaluations(session)
         return evaluations
 
     async def generate_report(self, session_id: UUID) -> str:
@@ -181,6 +204,7 @@ class InterviewService:
             report_generation_skill=LLMReportGenerationSkill(llm),
         )
         session.report = await reporter.run()
+        await self.persistence.persist_report(session)
         return session.report
 
     def get_report(self, session_id: UUID) -> str:

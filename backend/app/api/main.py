@@ -54,7 +54,7 @@ async def health_check() -> dict[str, str]:
 async def create_interview_session(
     request: CreateInterviewSessionRequest,
 ) -> CreateInterviewSessionResponse:
-    session = store.create_session(
+    session = await interview_service.create_session(
         company_name=request.company_name,
         role_title=request.role_title,
         jd_text=request.job_description,

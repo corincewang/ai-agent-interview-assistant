@@ -9,6 +9,7 @@ class Settings:
     openai_api_key: str | None
     openai_model: str
     enable_external_research: bool
+    database_url: str | None
 
 
 def load_settings() -> Settings:
@@ -18,6 +19,7 @@ def load_settings() -> Settings:
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         enable_external_research=_read_bool("ENABLE_EXTERNAL_RESEARCH", default=False),
+        database_url=os.getenv("DATABASE_URL"),
     )
 
 
