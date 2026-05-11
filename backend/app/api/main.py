@@ -10,6 +10,7 @@ from app.api.schemas import (
     EvaluateSessionResponse,
     GraphStatusResponse,
     InterviewPlanResponse,
+    InterviewSessionDatabaseSummaryResponse,
     PrepareSessionResponse,
     ReportResponse,
     SubmitAnswerRequest,
@@ -88,7 +89,7 @@ async def upload_document(
     file_path = session_dir / file_name
     file_path.write_bytes(await file.read())
 
-    interview_service.add_document(
+    await interview_service.add_document(
         session_id=session_id,
         file_path=file_path,
         document_type=document_type,
@@ -124,15 +125,38 @@ async def prepare_interview_session(session_id: UUID) -> PrepareSessionResponse:
 )
 async def get_interview_plan(session_id: UUID) -> InterviewPlanResponse:
     try:
-        interview_plan = interview_service.get_interview_plan(session_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        interview_plan = await interview_service.get_interview_plan_payload(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return InterviewPlanResponse(
         session_id=session_id,
-        interview_plan=to_jsonable(interview_plan),
+        interview_plan=interview_plan,
+    )
+
+
+@app.get(
+    "/interview-sessions/{session_id}/db-summary",
+    response_model=InterviewSessionDatabaseSummaryResponse,
+)
+async def get_interview_session_database_summary(
+    session_id: UUID,
+) -> InterviewSessionDatabaseSummaryResponse:
+    summary = await interview_service.persistence.get_session_summary(session_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Interview session not found: {session_id}")
+
+    return InterviewSessionDatabaseSummaryResponse(
+        session_id=summary.session_id,
+        company_name=summary.company_name,
+        role_title=summary.role_title,
+        status=summary.status,
+        document_count=summary.document_count,
+        parsed_document_count=summary.parsed_document_count,
+        chunk_count=summary.chunk_count,
+        embedded_chunk_count=summary.embedded_chunk_count,
+        plan_count=summary.plan_count,
+        question_count=summary.question_count,
     )
 
 

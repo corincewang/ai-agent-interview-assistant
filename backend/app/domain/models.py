@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 class DocumentType(str, Enum):
@@ -30,6 +30,7 @@ class InterviewTurnRole(str, Enum):
 class DocumentInput:
     file_path: Path
     document_type: DocumentType
+    document_id: UUID = field(default_factory=uuid4)
 
 
 @dataclass(frozen=True)

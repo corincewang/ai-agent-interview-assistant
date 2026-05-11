@@ -16,7 +16,12 @@ from app.domain.models import (
 
 
 class DocumentParsingTool(Protocol):
-    async def parse_document(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
+    async def parse_document(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None = None,
+    ) -> ParsedDocument:
         ...
 
 

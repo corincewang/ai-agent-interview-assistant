@@ -66,6 +66,7 @@ class LangGraphInterviewWorkflow:
             parsed_document = await self.document_parsing_tool.parse_document(
                 file_path=document_input.file_path,
                 document_type=document_input.document_type,
+                document_id=document_input.document_id,
             )
             parsed_documents.append(parsed_document)
 

@@ -5,6 +5,7 @@ from app.agents.evaluator import EvaluatorAgent
 from app.agents.live_interviewer import LiveInterviewerAgent
 from app.agents.report_generator import ReportGeneratorAgent
 from app.config.settings import load_settings
+from app.db.session import build_async_engine, build_session_factory, session_scope
 from app.domain.models import (
     AnswerEvaluation,
     DocumentInput,
@@ -17,6 +18,8 @@ from app.domain.models import (
 )
 from app.graph.langgraph_workflow import LangGraphInterviewWorkflow
 from app.graph.state import InterviewGraphState
+from app.ports.tools import VectorStore
+from app.providers.embeddings import OpenAIEmbeddingProvider
 from app.providers.llm import build_chat_model
 from app.services.postgres_persistence import OptionalPostgresPersistence
 from app.services.session_store import InterviewSessionRecord, InMemoryInterviewSessionStore
@@ -32,7 +35,12 @@ from app.skills.report_generation import LLMReportGenerationSkill
 from app.skills.resume_extraction import LLMResumeExtractionSkill
 from app.tools.chunking import RecursiveTextChunkingTool
 from app.tools.document_parsing import LocalDocumentParsingTool
+from app.tools.in_memory_vector_store import InMemoryVectorStore
+from app.tools.knowledge_base_indexer import DefaultKnowledgeBaseIndexer
+from app.tools.knowledge_retrieval import DefaultKnowledgeRetrievalTool
 from app.tools.mock_research import MockPageFetchTool, MockWebSearchTool
+from app.tools.postgres_vector_store import PostgresVectorStore
+from app.utils.serialization import to_jsonable
 
 
 class InterviewService:
@@ -56,7 +64,7 @@ class InterviewService:
         await self.persistence.persist_session(session)
         return session
 
-    def add_document(
+    async def add_document(
         self,
         session_id: UUID,
         file_path: Path,
@@ -65,18 +73,64 @@ class InterviewService:
         session = self.store.require_session(session_id)
         document_input = DocumentInput(file_path=file_path, document_type=document_type)
         session.document_inputs.append(document_input)
+        await self.persistence.persist_uploaded_document(session, document_input)
         return document_input
 
     async def prepare_session(self, session_id: UUID) -> InterviewPlan:
         session = self.store.require_session(session_id)
         settings = load_settings()
         llm = build_chat_model(settings)
+        chunking_tool = RecursiveTextChunkingTool()
+
+        if settings.database_url is not None:
+            engine = build_async_engine(settings.database_url)
+            try:
+                session_factory = build_session_factory(engine)
+                async for db_session in session_scope(session_factory):
+                    vector_store = PostgresVectorStore(db_session)
+                    prepared_state = await self._run_preparation_workflow(
+                        session=session,
+                        llm=llm,
+                        chunking_tool=chunking_tool,
+                        vector_store=vector_store,
+                    )
+            finally:
+                await engine.dispose()
+        else:
+            prepared_state = await self._run_preparation_workflow(
+                session=session,
+                llm=llm,
+                chunking_tool=chunking_tool,
+                vector_store=InMemoryVectorStore(),
+            )
+
+        interview_plan = prepared_state["interview_plan"]
+        if interview_plan is None:
+            raise ValueError("Preparation graph did not create an interview plan")
+
+        session.prepared_state = prepared_state
+        session.interview_plan = interview_plan
+        await self.persistence.persist_prepared_session(session)
+        return interview_plan
+
+    async def _run_preparation_workflow(
+        self,
+        session: InterviewSessionRecord,
+        llm,
+        chunking_tool: RecursiveTextChunkingTool,
+        vector_store: VectorStore,
+    ) -> InterviewGraphState:
+        settings = load_settings()
+        if settings.openai_api_key is None:
+            raise ValueError("OPENAI_API_KEY is required to run RAG preparation")
+
+        embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
         mock_web_search_tool = MockWebSearchTool()
         mock_page_fetch_tool = MockPageFetchTool()
 
         workflow = LangGraphInterviewWorkflow(
             document_parsing_tool=LocalDocumentParsingTool(),
-            chunking_tool=RecursiveTextChunkingTool(),
+            chunking_tool=chunking_tool,
             resume_extraction_skill=LLMResumeExtractionSkill(llm),
             candidate_profiling_skill=LLMCandidateProfilingSkill(llm),
             jd_analysis_skill=LLMJDAnalysisSkill(llm),
@@ -92,6 +146,15 @@ class InterviewService:
                 page_fetch_tool=mock_page_fetch_tool,
             ),
             interview_planning_skill=LLMInterviewPlanningSkill(llm),
+            knowledge_base_indexer=DefaultKnowledgeBaseIndexer(
+                chunking_tool=chunking_tool,
+                embedding_provider=embedding_provider,
+                vector_store=vector_store,
+            ),
+            knowledge_retrieval_tool=DefaultKnowledgeRetrievalTool(
+                embedding_provider=embedding_provider,
+                vector_store=vector_store,
+            ),
         )
 
         initial_state = InterviewGraphState(
@@ -102,21 +165,22 @@ class InterviewService:
             jd_text=session.jd_text,
             document_inputs=session.document_inputs,
         )
-        prepared_state = await workflow.build_preparation_graph().ainvoke(initial_state)
-        interview_plan = prepared_state["interview_plan"]
-        if interview_plan is None:
-            raise ValueError("Preparation graph did not create an interview plan")
-
-        session.prepared_state = prepared_state
-        session.interview_plan = interview_plan
-        await self.persistence.persist_prepared_session(session)
-        return interview_plan
+        return await workflow.build_preparation_graph().ainvoke(initial_state)
 
     def get_interview_plan(self, session_id: UUID) -> InterviewPlan:
         session = self.store.require_session(session_id)
         if session.interview_plan is None:
             raise ValueError("Interview session has not been prepared")
         return session.interview_plan
+
+    async def get_interview_plan_payload(self, session_id: UUID) -> dict:
+        try:
+            return to_jsonable(self.get_interview_plan(session_id))
+        except (KeyError, ValueError):
+            plan_payload = await self.persistence.get_interview_plan_payload(session_id)
+            if plan_payload is None:
+                raise ValueError("Interview session has not been prepared")
+            return plan_payload
 
     async def submit_answer(
         self,

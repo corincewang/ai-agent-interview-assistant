@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import DocumentChunkRecord, DocumentRecord
 from app.domain.models import (
     DocumentChunk,
+    DocumentInput,
     EmbeddedDocumentChunk,
     ParsedDocument,
 )
@@ -14,6 +15,41 @@ from app.domain.models import (
 class PostgresDocumentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def save_uploaded_document(
+        self,
+        session_id: UUID,
+        document_input: DocumentInput,
+    ) -> UUID:
+        record = await self.session.get(DocumentRecord, document_input.document_id)
+        if record is None:
+            record = DocumentRecord(
+                id=document_input.document_id,
+                session_id=session_id,
+                document_type=document_input.document_type.value,
+                file_name=document_input.file_path.name,
+                file_path=str(document_input.file_path),
+                raw_text="",
+                document_metadata={
+                    "file_name": document_input.file_path.name,
+                    "file_suffix": document_input.file_path.suffix.lower(),
+                    "upload_status": "uploaded",
+                },
+            )
+            self.session.add(record)
+        else:
+            record.document_type = document_input.document_type.value
+            record.file_name = document_input.file_path.name
+            record.file_path = str(document_input.file_path)
+            record.document_metadata = {
+                **record.document_metadata,
+                "file_name": document_input.file_path.name,
+                "file_suffix": document_input.file_path.suffix.lower(),
+                "upload_status": "uploaded",
+            }
+
+        await self.session.flush()
+        return document_input.document_id
 
     async def save_parsed_document(
         self,
@@ -32,15 +68,20 @@ class PostgresDocumentRepository:
                 file_name=file_name,
                 file_path=file_path,
                 raw_text=document.raw_text,
-                document_metadata=document.metadata,
+                document_metadata={**document.metadata, "upload_status": "parsed"},
             )
             self.session.add(record)
         else:
             existing.document_type = document.document_type.value
             existing.file_name = file_name
-            existing.file_path = file_path
+            if file_path is not None:
+                existing.file_path = file_path
             existing.raw_text = document.raw_text
-            existing.document_metadata = document.metadata
+            existing.document_metadata = {
+                **existing.document_metadata,
+                **document.metadata,
+                "upload_status": "parsed",
+            }
 
         await self.session.flush()
         return document.id

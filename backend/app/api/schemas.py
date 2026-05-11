@@ -35,6 +35,19 @@ class InterviewPlanResponse(BaseModel):
     interview_plan: dict
 
 
+class InterviewSessionDatabaseSummaryResponse(BaseModel):
+    session_id: UUID
+    company_name: str
+    role_title: str
+    status: str
+    document_count: int
+    parsed_document_count: int
+    chunk_count: int
+    embedded_chunk_count: int
+    plan_count: int
+    question_count: int
+
+
 class SubmitAnswerRequest(BaseModel):
     question_id: UUID
     answer: str = Field(min_length=1)
@@ -58,4 +71,3 @@ class ReportResponse(BaseModel):
 class GraphStatusResponse(BaseModel):
     preparation_graph_compiles: bool
     live_interview_graph_compiles: bool
-

@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pypdf import PdfReader
 
@@ -8,19 +8,29 @@ from app.domain.models import DocumentType, ParsedDocument, SourceSpan
 
 
 class LocalDocumentParsingTool:
-    async def parse_document(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
+    async def parse_document(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None = None,
+    ) -> ParsedDocument:
         suffix = file_path.suffix.lower()
 
         if suffix == ".pdf":
-            return self._parse_pdf(file_path, document_type)
+            return self._parse_pdf(file_path, document_type, document_id)
 
         if suffix in {".txt", ".md"}:
-            return self._parse_text(file_path, document_type)
+            return self._parse_text(file_path, document_type, document_id)
 
         raise ValueError(f"Unsupported document type: {suffix}")
 
-    def _parse_pdf(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
-        document_id = uuid4()
+    def _parse_pdf(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None,
+    ) -> ParsedDocument:
+        document_id = document_id or uuid4()
         suffix = file_path.suffix.lower()
         reader = PdfReader(str(file_path))
         page_texts: list[str] = []
@@ -59,8 +69,13 @@ class LocalDocumentParsingTool:
             },
         )
 
-    def _parse_text(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
-        document_id = uuid4()
+    def _parse_text(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None,
+    ) -> ParsedDocument:
+        document_id = document_id or uuid4()
         text = _clean_extracted_text(file_path.read_text(encoding="utf-8"))
 
         return ParsedDocument(
