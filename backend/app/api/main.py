@@ -160,6 +160,9 @@ async def get_interview_session_database_summary(
         embedded_chunk_count=summary.embedded_chunk_count,
         plan_count=summary.plan_count,
         question_count=summary.question_count,
+        critique_count=summary.critique_count,
+        critique_overall_score=summary.critique_overall_score,
+        critique_quality_gate_passed=summary.critique_quality_gate_passed,
     )
 
 

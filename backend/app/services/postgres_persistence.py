@@ -110,6 +110,14 @@ class OptionalPostgresPersistence:
                 if session_record.interview_plan is not None:
                     await artifact_repository.save_interview_plan(session_record.interview_plan)
 
+                interview_plan_critique = session_record.prepared_state.get(
+                    "interview_plan_critique"
+                )
+                if interview_plan_critique is not None:
+                    await artifact_repository.save_interview_plan_critique(
+                        interview_plan_critique
+                    )
+
             await self._run_with_session(operation)
         except Exception as exc:
             print(f"Postgres persistence warning: prepared session was not persisted: {exc}")
@@ -189,6 +197,19 @@ class OptionalPostgresPersistence:
 
         await self._run_with_session(operation)
         return plan_payload
+
+    async def get_interview_plan_critique_payload(self, session_id) -> dict | None:
+        critique_payload: dict | None = None
+
+        async def operation(db_session: AsyncSession) -> None:
+            nonlocal critique_payload
+            repository = PostgresInterviewArtifactRepository(db_session)
+            critique_payload = await repository.get_interview_plan_critique_payload(
+                session_id
+            )
+
+        await self._run_with_session(operation)
+        return critique_payload
 
     async def dispose(self) -> None:
         return None

@@ -8,6 +8,7 @@ from app.db.models import (
     DocumentChunkRecord,
     DocumentRecord,
     InterviewPlanRecord,
+    InterviewPlanCritiqueRecord,
     InterviewQuestionRecord,
     InterviewSessionRecord,
 )
@@ -25,6 +26,9 @@ class InterviewSessionDatabaseSummary:
     embedded_chunk_count: int
     plan_count: int
     question_count: int
+    critique_count: int
+    critique_overall_score: float | None
+    critique_quality_gate_passed: bool | None
 
 
 class PostgresSessionSummaryRepository:
@@ -72,6 +76,11 @@ class PostgresSessionSummaryRepository:
             .join(InterviewPlanRecord)
             .where(InterviewPlanRecord.session_id == session_id)
         )
+        critique_record = await self.session.scalar(
+            select(InterviewPlanCritiqueRecord).where(
+                InterviewPlanCritiqueRecord.session_id == session_id
+            )
+        )
 
         return InterviewSessionDatabaseSummary(
             session_id=session_record.id,
@@ -84,6 +93,13 @@ class PostgresSessionSummaryRepository:
             embedded_chunk_count=embedded_chunk_count,
             plan_count=plan_count,
             question_count=question_count,
+            critique_count=1 if critique_record is not None else 0,
+            critique_overall_score=(
+                critique_record.overall_score if critique_record is not None else None
+            ),
+            critique_quality_gate_passed=(
+                critique_record.quality_gate_passed if critique_record is not None else None
+            ),
         )
 
     async def _count(self, statement) -> int:

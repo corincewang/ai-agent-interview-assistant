@@ -47,6 +47,9 @@ class InterviewSessionDatabaseSummaryResponse(BaseModel):
     embedded_chunk_count: int
     plan_count: int
     question_count: int
+    critique_count: int
+    critique_overall_score: float | None
+    critique_quality_gate_passed: bool | None
 
 
 class SubmitAnswerRequest(BaseModel):

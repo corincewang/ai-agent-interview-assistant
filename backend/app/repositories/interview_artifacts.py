@@ -6,11 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     AnswerEvaluationRecord,
     InterviewPlanRecord,
+    InterviewPlanCritiqueRecord,
     InterviewQuestionRecord,
     InterviewTurnRecord,
+    QuestionCritiqueRecord,
     ReportRecord,
 )
-from app.domain.models import AnswerEvaluation, InterviewPlan, InterviewTurn
+from app.domain.models import (
+    AnswerEvaluation,
+    InterviewPlan,
+    InterviewPlanCritique,
+    InterviewTurn,
+)
 from app.utils.serialization import to_jsonable
 
 
@@ -54,10 +61,69 @@ class PostgresInterviewArtifactRepository:
         await self.session.flush()
         return plan_record.id
 
+    async def save_interview_plan_critique(
+        self,
+        critique: InterviewPlanCritique,
+    ) -> UUID:
+        await self.session.execute(
+            delete(InterviewPlanCritiqueRecord).where(
+                InterviewPlanCritiqueRecord.session_id == critique.session_id
+            )
+        )
+
+        plan_record = await self.session.scalar(
+            select(InterviewPlanRecord).where(
+                InterviewPlanRecord.session_id == critique.session_id
+            )
+        )
+        plan_id = plan_record.id if plan_record is not None else None
+
+        critique_record = InterviewPlanCritiqueRecord(
+            session_id=critique.session_id,
+            plan_id=plan_id,
+            overall_score=critique.overall_score,
+            quality_gate_passed=critique.quality_gate_passed,
+            coverage_summary=to_jsonable(critique.coverage_summary),
+            revision_recommendations=to_jsonable(critique.revision_recommendations),
+            critique_payload=to_jsonable(critique),
+        )
+        self.session.add(critique_record)
+        await self.session.flush()
+
+        self.session.add_all(
+            [
+                QuestionCritiqueRecord(
+                    plan_critique_id=critique_record.id,
+                    question_id=question_critique.question_id,
+                    resume_grounding_score=question_critique.resume_grounding_score,
+                    jd_coverage_score=question_critique.jd_coverage_score,
+                    rag_grounding_score=question_critique.rag_grounding_score,
+                    specificity_score=question_critique.specificity_score,
+                    follow_up_potential_score=question_critique.follow_up_potential_score,
+                    overall_score=question_critique.overall_score,
+                    strengths=to_jsonable(question_critique.strengths),
+                    improvement_suggestions=to_jsonable(
+                        question_critique.improvement_suggestions
+                    ),
+                )
+                for question_critique in critique.question_critiques
+            ]
+        )
+        await self.session.flush()
+        return critique_record.id
+
     async def get_interview_plan_payload(self, session_id: UUID) -> dict | None:
         result = await self.session.scalar(
             select(InterviewPlanRecord.plan_payload).where(
                 InterviewPlanRecord.session_id == session_id
+            )
+        )
+        return result
+
+    async def get_interview_plan_critique_payload(self, session_id: UUID) -> dict | None:
+        result = await self.session.scalar(
+            select(InterviewPlanCritiqueRecord.critique_payload).where(
+                InterviewPlanCritiqueRecord.session_id == session_id
             )
         )
         return result
