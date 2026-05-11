@@ -75,6 +75,38 @@ class DocumentChunk:
 
 
 @dataclass(frozen=True)
+class EmbeddedDocumentChunk:
+    chunk: DocumentChunk
+    embedding: list[float]
+    embedding_model: str
+
+
+@dataclass(frozen=True)
+class KnowledgeIndexingResult:
+    session_id: UUID
+    indexed_document_ids: list[UUID]
+    indexed_chunk_ids: list[UUID]
+    skipped_document_ids: list[UUID]
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
+class RetrievedKnowledgeChunk:
+    chunk: DocumentChunk
+    score: float
+    rank: int
+    retrieval_query: str
+
+
+@dataclass(frozen=True)
+class KnowledgeRetrievalResult:
+    session_id: UUID
+    query: str
+    chunks: list[RetrievedKnowledgeChunk]
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
 class EducationItem:
     institution: str
     degree: str

@@ -11,7 +11,12 @@ from app.agents.jd_analyzer import JDAnalyzerAgent
 from app.agents.resume_extractor import ResumeExtractorAgent
 from app.domain.models import DocumentType
 from app.graph.state import InterviewGraphState
-from app.ports.tools import ChunkingTool, DocumentParsingTool
+from app.ports.tools import (
+    ChunkingTool,
+    DocumentParsingTool,
+    KnowledgeBaseIndexer,
+    KnowledgeRetrievalTool,
+)
 from app.skills.contracts import (
     CandidateJobMatchingSkill,
     CandidateProfilingSkill,
@@ -35,6 +40,8 @@ class LangGraphInterviewWorkflow:
         company_research_skill: CompanyResearchSkill | None = None,
         interview_intel_skill: InterviewIntelSkill | None = None,
         interview_planning_skill: InterviewPlanningSkill | None = None,
+        knowledge_base_indexer: KnowledgeBaseIndexer | None = None,
+        knowledge_retrieval_tool: KnowledgeRetrievalTool | None = None,
     ) -> None:
         self.document_parsing_tool = document_parsing_tool
         self.chunking_tool = chunking_tool
@@ -45,6 +52,8 @@ class LangGraphInterviewWorkflow:
         self.company_research_skill = company_research_skill
         self.interview_intel_skill = interview_intel_skill
         self.interview_planning_skill = interview_planning_skill
+        self.knowledge_base_indexer = knowledge_base_indexer
+        self.knowledge_retrieval_tool = knowledge_retrieval_tool
 
     async def ingest_documents(self, state: InterviewGraphState) -> InterviewGraphState:
         if self.document_parsing_tool is None:
@@ -69,6 +78,24 @@ class LangGraphInterviewWorkflow:
             parsed_documents=parsed_documents,
             document_chunks=document_chunks,
         )
+
+    async def index_knowledge_base(self, state: InterviewGraphState) -> InterviewGraphState:
+        if self.knowledge_base_indexer is None:
+            return state
+
+        knowledge_documents = [
+            document
+            for document in state.parsed_documents
+            if document.document_type == DocumentType.KNOWLEDGE_BASE
+        ]
+        if not knowledge_documents:
+            return state
+
+        indexing_result = await self.knowledge_base_indexer.index_documents(
+            session_id=state.session_id,
+            documents=knowledge_documents,
+        )
+        return replace(state, knowledge_indexing_result=indexing_result)
 
     async def extract_resume_profile(self, state: InterviewGraphState) -> InterviewGraphState:
         if self.resume_extraction_skill is None:
@@ -187,6 +214,45 @@ class LangGraphInterviewWorkflow:
 
         return list(dict.fromkeys(topic for topic in topics if topic.strip()))[:12]
 
+    async def retrieve_planning_context(self, state: InterviewGraphState) -> InterviewGraphState:
+        if self.knowledge_retrieval_tool is None:
+            return state
+        if state.knowledge_indexing_result is None:
+            return state
+
+        query = self._build_planning_retrieval_query(state)
+        if not query:
+            return state
+
+        planning_knowledge_context = await self.knowledge_retrieval_tool.retrieve_knowledge(
+            session_id=state.session_id,
+            query=query,
+            top_k=5,
+            document_types=[DocumentType.KNOWLEDGE_BASE],
+        )
+        return replace(state, planning_knowledge_context=planning_knowledge_context)
+
+    def _build_planning_retrieval_query(self, state: InterviewGraphState) -> str:
+        query_parts = [
+            state.company_name,
+            state.role_title,
+            state.jd_text,
+        ]
+
+        if state.job_analysis is not None:
+            query_parts.extend(state.job_analysis.required_skills)
+            query_parts.extend(state.job_analysis.preferred_skills)
+
+        if state.candidate_profile is not None:
+            query_parts.extend(state.candidate_profile.technical_skills)
+            query_parts.extend(state.candidate_profile.follow_up_targets)
+
+        if state.candidate_job_match is not None:
+            query_parts.extend(state.candidate_job_match.candidate_matches)
+            query_parts.extend(state.candidate_job_match.role_specific_risk_areas)
+
+        return "\n".join(part for part in query_parts if part.strip())
+
     async def plan_interview(self, state: InterviewGraphState) -> InterviewGraphState:
         if self.interview_planning_skill is None:
             return state
@@ -206,6 +272,7 @@ class LangGraphInterviewWorkflow:
             company_sources=state.company_sources,
             interview_intel=state.interview_intel,
             interview_planning_skill=self.interview_planning_skill,
+            knowledge_context=state.planning_knowledge_context,
         )
         interview_plan = await agent.run()
         return replace(state, interview_plan=interview_plan)
@@ -223,22 +290,26 @@ class LangGraphInterviewWorkflow:
         graph = StateGraph(InterviewGraphState)
 
         graph.add_node("ingest_documents", self.ingest_documents)
+        graph.add_node("index_knowledge_base", self.index_knowledge_base)
         graph.add_node("extract_resume_profile", self.extract_resume_profile)
         graph.add_node("profile_candidate", self.profile_candidate)
         graph.add_node("analyze_jd", self.analyze_jd)
         graph.add_node("match_candidate_to_job", self.match_candidate_to_job)
         graph.add_node("research_company", self.research_company)
         graph.add_node("collect_interview_intel", self.collect_interview_intel)
+        graph.add_node("retrieve_planning_context", self.retrieve_planning_context)
         graph.add_node("plan_interview", self.plan_interview)
 
         graph.add_edge(START, "ingest_documents")
-        graph.add_edge("ingest_documents", "extract_resume_profile")
+        graph.add_edge("ingest_documents", "index_knowledge_base")
+        graph.add_edge("index_knowledge_base", "extract_resume_profile")
         graph.add_edge("extract_resume_profile", "profile_candidate")
         graph.add_edge("profile_candidate", "analyze_jd")
         graph.add_edge("analyze_jd", "match_candidate_to_job")
         graph.add_edge("match_candidate_to_job", "research_company")
         graph.add_edge("research_company", "collect_interview_intel")
-        graph.add_edge("collect_interview_intel", "plan_interview")
+        graph.add_edge("collect_interview_intel", "retrieve_planning_context")
+        graph.add_edge("retrieve_planning_context", "plan_interview")
         graph.add_edge("plan_interview", END)
 
         return graph.compile()

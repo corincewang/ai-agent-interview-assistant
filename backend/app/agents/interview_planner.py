@@ -5,6 +5,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     JobAnalysis,
+    KnowledgeRetrievalResult,
     ResearchFinding,
 )
 from app.skills.contracts import InterviewPlanningSkill
@@ -20,6 +21,7 @@ class InterviewPlannerAgent:
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
         interview_planning_skill: InterviewPlanningSkill,
+        knowledge_context: KnowledgeRetrievalResult | None = None,
     ) -> None:
         self.session_id = session_id
         self.candidate_profile = candidate_profile
@@ -28,6 +30,7 @@ class InterviewPlannerAgent:
         self.company_sources = company_sources
         self.interview_intel = interview_intel
         self.interview_planning_skill = interview_planning_skill
+        self.knowledge_context = knowledge_context
 
     async def run(self) -> InterviewPlan:
         return await self.interview_planning_skill.create_interview_plan(
@@ -37,4 +40,5 @@ class InterviewPlannerAgent:
             candidate_job_match=self.candidate_job_match,
             company_sources=self.company_sources,
             interview_intel=self.interview_intel,
+            knowledge_context=self.knowledge_context,
         )

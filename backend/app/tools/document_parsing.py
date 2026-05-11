@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -27,7 +28,7 @@ class LocalDocumentParsingTool:
         cursor = 0
 
         for page_index, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
+            text = _clean_extracted_text(page.extract_text() or "")
             if not text.strip():
                 continue
 
@@ -60,7 +61,7 @@ class LocalDocumentParsingTool:
 
     def _parse_text(self, file_path: Path, document_type: DocumentType) -> ParsedDocument:
         document_id = uuid4()
-        text = file_path.read_text(encoding="utf-8")
+        text = _clean_extracted_text(file_path.read_text(encoding="utf-8"))
 
         return ParsedDocument(
             id=document_id,
@@ -80,3 +81,16 @@ class LocalDocumentParsingTool:
                 "file_suffix": file_path.suffix.lower(),
             },
         )
+
+
+def _clean_extracted_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：（）、])", "", text)
+    text = re.sub(r"(?<=[，。！？；：（）、])\s+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"(?<=[A-Za-z0-9])\s*\n+\s*(?=[A-Za-z0-9])", " ", text)
+    text = re.sub(r"(?<=[A-Za-z0-9])\s*\n+\s*(?=[\u4e00-\u9fff])", " ", text)
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s*\n+\s*(?=[A-Za-z0-9])", " ", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()

@@ -9,6 +9,8 @@ from app.domain.models import (
     InterviewPlan,
     InterviewTurn,
     JobAnalysis,
+    KnowledgeIndexingResult,
+    KnowledgeRetrievalResult,
     ParsedDocument,
     ResearchFinding,
     ResumeProfile,
@@ -25,6 +27,8 @@ class InterviewGraphState:
     document_inputs: list[DocumentInput] = field(default_factory=list)
     parsed_documents: list[ParsedDocument] = field(default_factory=list)
     document_chunks: list[DocumentChunk] = field(default_factory=list)
+    knowledge_indexing_result: KnowledgeIndexingResult | None = None
+    planning_knowledge_context: KnowledgeRetrievalResult | None = None
     resume_profile: ResumeProfile | None = None
     candidate_profile: CandidateProfile | None = None
     job_analysis: JobAnalysis | None = None

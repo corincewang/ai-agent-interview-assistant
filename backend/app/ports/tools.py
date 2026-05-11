@@ -1,8 +1,18 @@
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
-from app.domain.models import DocumentChunk, DocumentType, InterviewTurn, ParsedDocument, SourceCitation
+from app.domain.models import (
+    DocumentChunk,
+    DocumentType,
+    EmbeddedDocumentChunk,
+    InterviewTurn,
+    KnowledgeIndexingResult,
+    KnowledgeRetrievalResult,
+    ParsedDocument,
+    RetrievedKnowledgeChunk,
+    SourceCitation,
+)
 
 
 class DocumentParsingTool(Protocol):
@@ -15,19 +25,48 @@ class ChunkingTool(Protocol):
         ...
 
 
-class EmbeddingTool(Protocol):
-    async def embed_chunks(self, chunks: list[DocumentChunk]) -> list[UUID]:
+class EmbeddingProvider(Protocol):
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         ...
 
 
-class RetrievalTool(Protocol):
-    async def retrieve_context(
+class VectorStore(Protocol):
+    async def upsert_chunks(
+        self,
+        session_id: UUID,
+        chunks: list[EmbeddedDocumentChunk],
+    ) -> list[UUID]:
+        ...
+
+    async def search(
+        self,
+        session_id: UUID,
+        query_embedding: list[float],
+        top_k: int,
+        document_types: list[DocumentType] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[RetrievedKnowledgeChunk]:
+        ...
+
+
+class KnowledgeBaseIndexer(Protocol):
+    async def index_documents(
+        self,
+        session_id: UUID,
+        documents: list[ParsedDocument],
+    ) -> KnowledgeIndexingResult:
+        ...
+
+
+class KnowledgeRetrievalTool(Protocol):
+    async def retrieve_knowledge(
         self,
         session_id: UUID,
         query: str,
-        document_types: list[DocumentType],
-        limit: int,
-    ) -> list[DocumentChunk]:
+        top_k: int,
+        document_types: list[DocumentType] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> KnowledgeRetrievalResult:
         ...
 
 

@@ -9,6 +9,7 @@ from app.domain.models import (
     InterviewQuestion,
     InterviewTurn,
     JobAnalysis,
+    KnowledgeRetrievalResult,
     ParsedDocument,
     ResearchFinding,
     ResumeProfile,
@@ -99,6 +100,7 @@ class InterviewPlanningSkill(Protocol):
         candidate_job_match: CandidateJobMatch,
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
+        knowledge_context: KnowledgeRetrievalResult | None = None,
     ) -> InterviewPlan:
         ...
 
