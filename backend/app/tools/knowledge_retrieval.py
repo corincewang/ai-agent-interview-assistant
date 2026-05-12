@@ -7,6 +7,7 @@ from app.domain.models import (
     KnowledgeRetrievalResult,
 )
 from app.ports.tools import EmbeddingProvider, VectorStore
+from app.tools.knowledge_reranker import rerank_retrieved_chunks
 
 
 class DefaultKnowledgeRetrievalTool:
@@ -25,6 +26,8 @@ class DefaultKnowledgeRetrievalTool:
         top_k: int,
         document_types: list[DocumentType] | None = None,
         filters: dict[str, Any] | None = None,
+        prefetch_k: int | None = None,
+        rerank_enabled: bool = True,
     ) -> KnowledgeRetrievalResult:
         normalized_query = query.strip()
         if not normalized_query:
@@ -52,13 +55,25 @@ class DefaultKnowledgeRetrievalTool:
                 warnings=["Embedding provider returned no query embedding."],
             )
 
+        fetch_cap = prefetch_k if prefetch_k is not None else max(20, top_k)
+        fetch_cap = max(fetch_cap, top_k)
+
         retrieved_chunks = await self._vector_store.search(
             session_id=session_id,
             query_embedding=embeddings[0],
-            top_k=top_k,
+            top_k=fetch_cap,
             document_types=document_types,
             filters=filters,
         )
+
+        if rerank_enabled and len(retrieved_chunks) > 1:
+            retrieved_chunks = rerank_retrieved_chunks(normalized_query, retrieved_chunks)
+
+        retrieved_chunks = retrieved_chunks[:top_k]
+        retrieved_chunks = [
+            replace(chunk, rank=ordinal)
+            for ordinal, chunk in enumerate(retrieved_chunks, start=1)
+        ]
 
         return KnowledgeRetrievalResult(
             session_id=session_id,

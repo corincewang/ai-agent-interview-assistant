@@ -71,6 +71,8 @@ class KnowledgeRetrievalTool(Protocol):
         top_k: int,
         document_types: list[DocumentType] | None = None,
         filters: dict[str, Any] | None = None,
+        prefetch_k: int | None = None,
+        rerank_enabled: bool = True,
     ) -> KnowledgeRetrievalResult:
         ...
 

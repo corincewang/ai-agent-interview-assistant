@@ -244,6 +244,7 @@ class LangGraphInterviewWorkflow:
             session_id=state.session_id,
             query=query,
             top_k=5,
+            prefetch_k=20,
             document_types=[DocumentType.KNOWLEDGE_BASE],
         )
         return replace(state, planning_knowledge_context=planning_knowledge_context)
