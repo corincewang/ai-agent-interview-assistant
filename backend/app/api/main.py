@@ -1,10 +1,11 @@
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.schemas import (
+    BatchUploadDocumentsResponse,
     CreateInterviewSessionRequest,
     CreateInterviewSessionResponse,
     EvaluateSessionResponse,
@@ -45,6 +46,8 @@ app.add_middleware(
 store = InMemoryInterviewSessionStore()
 interview_service = InterviewService(store)
 UPLOAD_ROOT = Path("/private/tmp/ai-agent-interview-assistant")
+SUPPORTED_BATCH_UPLOAD_SUFFIXES = {".pdf"}
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
@@ -86,7 +89,8 @@ async def upload_document(
     session_dir = UPLOAD_ROOT / str(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
     file_name = file.filename or "uploaded_document"
-    file_path = session_dir / file_name
+    file_path = _safe_upload_path(session_dir, file_name)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(await file.read())
 
     await interview_service.add_document(
@@ -98,6 +102,62 @@ async def upload_document(
         session_id=session_id,
         document_type=document_type,
         file_name=file_name,
+    )
+
+
+@app.post(
+    "/interview-sessions/{session_id}/documents/batch",
+    response_model=BatchUploadDocumentsResponse,
+)
+async def upload_documents_batch(
+    session_id: UUID,
+    document_type: DocumentType,
+    files: list[UploadFile] = File(...),
+) -> BatchUploadDocumentsResponse:
+    try:
+        store.require_session(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one PDF file is required.")
+
+    rejected_file_names = [
+        file.filename or "uploaded_document.pdf"
+        for file in files
+        if Path(file.filename or "uploaded_document.pdf").suffix.lower()
+        not in SUPPORTED_BATCH_UPLOAD_SUFFIXES
+    ]
+    if rejected_file_names:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Batch upload currently supports PDF files only.",
+                "rejected_file_names": rejected_file_names,
+            },
+        )
+
+    batch_dir = UPLOAD_ROOT / str(session_id) / "batch" / str(uuid4())
+    batch_dir.mkdir(parents=True, exist_ok=True)
+
+    for file in files:
+        file_name = file.filename or "uploaded_document.pdf"
+        file_path = _safe_upload_path(batch_dir, file_name)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(await file.read())
+
+    document_inputs = await interview_service.add_documents_from_path(
+        session_id=session_id,
+        root_path=batch_dir,
+        document_type=document_type,
+        suffixes=SUPPORTED_BATCH_UPLOAD_SUFFIXES,
+    )
+
+    return BatchUploadDocumentsResponse(
+        session_id=session_id,
+        document_type=document_type,
+        document_count=len(document_inputs),
+        file_names=[document_input.file_path.name for document_input in document_inputs],
     )
 
 
@@ -249,3 +309,20 @@ async def graph_status() -> GraphStatusResponse:
         preparation_graph_compiles=True,
         live_interview_graph_compiles=True,
     )
+
+
+def _safe_upload_path(root: Path, file_name: str) -> Path:
+    safe_parts = [
+        part
+        for part in Path(file_name).parts
+        if part not in {"", ".", ".."} and not Path(part).is_absolute()
+    ]
+    if not safe_parts:
+        safe_parts = ["uploaded_document.pdf"]
+
+    candidate = (root / Path(*safe_parts)).resolve()
+    resolved_root = root.resolve()
+    if not candidate.is_relative_to(resolved_root):
+        raise HTTPException(status_code=400, detail=f"Unsafe upload path: {file_name}")
+
+    return candidate

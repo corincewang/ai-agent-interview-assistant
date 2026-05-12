@@ -77,6 +77,28 @@ class InterviewService:
         await self.persistence.persist_uploaded_document(session, document_input)
         return document_input
 
+    async def add_documents_from_path(
+        self,
+        session_id: UUID,
+        root_path: Path,
+        document_type: DocumentType,
+        suffixes: set[str] | None = None,
+    ) -> list[DocumentInput]:
+        session = self.store.require_session(session_id)
+        supported_suffixes = suffixes or {".pdf"}
+        document_inputs: list[DocumentInput] = []
+
+        for file_path in _iter_document_paths(root_path, supported_suffixes):
+            document_input = DocumentInput(
+                file_path=file_path,
+                document_type=document_type,
+            )
+            session.document_inputs.append(document_input)
+            await self.persistence.persist_uploaded_document(session, document_input)
+            document_inputs.append(document_input)
+
+        return document_inputs
+
     async def prepare_session(self, session_id: UUID) -> InterviewPlan:
         session = self.store.require_session(session_id)
         settings = load_settings()
@@ -300,3 +322,16 @@ class InterviewService:
             and turn.metadata.get("question_id") == str(question_id)
             for turn in session.transcript
         )
+
+
+def _iter_document_paths(root_path: Path, suffixes: set[str]) -> list[Path]:
+    normalized_suffixes = {suffix.lower() for suffix in suffixes}
+
+    if root_path.is_file():
+        return [root_path] if root_path.suffix.lower() in normalized_suffixes else []
+
+    return sorted(
+        path
+        for path in root_path.rglob("*")
+        if path.is_file() and path.suffix.lower() in normalized_suffixes
+    )

@@ -25,6 +25,13 @@ class UploadDocumentResponse(BaseModel):
     file_name: str
 
 
+class BatchUploadDocumentsResponse(BaseModel):
+    session_id: UUID
+    document_type: DocumentType
+    document_count: int
+    file_names: list[str]
+
+
 class PrepareSessionResponse(BaseModel):
     session_id: UUID
     interview_plan: dict

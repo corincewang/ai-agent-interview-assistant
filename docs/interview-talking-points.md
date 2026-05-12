@@ -161,6 +161,44 @@ Native
 
 这里的设计重点是“解析器可替换”：RAG indexer 只依赖 `ParsedDocument` 这个结构化输出，不直接依赖某个 PDF 库。这样后续即使接云端 OCR 服务，也不会影响 chunking、embedding 和 retrieval 逻辑。
 
+## 为什么 PDF 解析要放到线程里
+
+FastAPI 本身是异步框架，请求处理运行在 event loop 上。event loop 适合调度很多 I/O 任务，比如等待数据库、等待网络、等待文件上传；但 PDF 解析不是纯异步 I/O，它会做文件读取、PDF 文本抽取、版面分析、正则清洗等阻塞操作。如果直接在 `async def` 里同步执行这些逻辑，event loop 会被占住，其他请求也要排队等它跑完。
+
+所以 `parse_document` 使用：
+
+```python
+await asyncio.to_thread(self._parse_document_sync, file_path, document_type, document_id)
+```
+
+`asyncio.to_thread` 会把同步阻塞函数提交到默认线程池里执行，当前 coroutine 会让出 event loop。这样 PDF 解析还在继续，但 FastAPI 可以继续处理健康检查、上传状态查询、下一次请求等任务。
+
+这个设计的面试重点是：
+
+- `async` 不等于自动并发。如果函数内部跑的是阻塞 CPU/文件解析逻辑，仍然会卡 event loop。
+- 线程池适合包住阻塞型 I/O 或混合型任务，例如 PDF 解析、文件处理、第三方同步 SDK。
+- 真正 CPU 密集型任务如果非常重，后续可以升级成进程池或独立 worker，例如 Celery/RQ/Arq，而不是无限加线程。
+- 线程池不是为了让单个 PDF 一定更快，而是为了让服务整体不被一个长任务拖死。
+
+## 为什么长 PDF 要流式 ingestion
+
+178 页知识库如果按“整本 PDF 解析完成 -> 整本 chunk -> 整本 embedding -> 一次性入库”的方式处理，用户必须等到最后一步完成才能开始使用 RAG。这个体验很差，而且失败恢复也很差：如果第 170 页失败，前 160 页的成果也不能及时被用起来。
+
+现在长 PDF 会按 10 页一个 window 处理：
+
+```text
+parse pages 1-10 -> chunk -> embed -> upsert pgvector -> emit progress
+parse pages 11-20 -> chunk -> embed -> upsert pgvector -> emit progress
+...
+```
+
+这个流式 pipeline 的好处是：
+
+- 首批页面入库后，RAG 就能先基于前 10 页召回内容并生成问题。
+- 每个 page window 都有独立 metadata，例如 `start_page` 和 `end_page`，方便做进度展示、失败重试和引用来源。
+- 解析、分块、embedding、入库被拆成可观察的小步骤，后续可以做任务队列、重试、取消和断点续跑。
+- 大文件处理从 batch job 变成 incremental indexing，更接近真实生产系统的知识库构建方式。
+
 ## RAG 怎么接进 LangGraph
 
 我在 `InterviewGraphState` 里新增了：

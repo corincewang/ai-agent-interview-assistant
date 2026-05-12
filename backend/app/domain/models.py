@@ -92,6 +92,19 @@ class KnowledgeIndexingResult:
 
 
 @dataclass(frozen=True)
+class KnowledgeIngestionProgress:
+    session_id: UUID
+    document_id: UUID
+    status: Literal["indexed_window", "completed", "skipped_window"]
+    page_window: dict[str, int] | None
+    parsed_char_count: int
+    chunk_count: int
+    indexed_chunk_count: int
+    indexed_chunk_ids: list[UUID]
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
 class RetrievedKnowledgeChunk:
     chunk: DocumentChunk
     score: float
