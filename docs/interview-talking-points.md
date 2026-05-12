@@ -132,9 +132,19 @@ document_chunks.embedding_model
 
 或者 index-level metadata，用于模型迁移和重建索引。
 
-## 为什么要做文本清理
+## 为什么要做文档解析和文本清理
 
-真实 PDF 用 `pypdf.extract_text()` 抽取中文时，会出现很多无意义空格和断行，比如：
+简历和用户知识库不是普通字符串，而是 PDF、Word、Markdown 等多种文档格式。MVP 里我把文档解析做成独立 tool，统一使用 `unstructured.partition.auto.partition` 解析文本型 PDF、扫描型 PDF 和 Word。
+
+PDF 采用渐进式解析策略：
+
+```text
+fast -> hi_res -> ocr_only
+```
+
+`fast` 优先处理绝大多数文本型简历，速度快、依赖轻；如果抽出的文本太少或解析报错，再升级到 `hi_res`；最后才进入 `ocr_only`。这样可以避免一上来就走 OCR，降低延迟和成本，同时保留处理扫描型 PDF 的能力。
+
+真实中文 PDF 解析后经常会出现很多无意义空格和断行，比如：
 
 ```text
 列 表 的 流 畅 度
@@ -142,14 +152,14 @@ React
 Native
 ```
 
-所以我加了轻量 `_clean_extracted_text()`：
+所以我加了轻量文本清理层：
 
 - 合并中文字符之间多余空格。
 - 合并中文和中文标点之间的空格。
 - 修复英文 token 和中英混排的异常断行。
 - 压缩多余空行。
 
-清理后真实知识库 PDF 从约 `27276` 字符降到约 `15550` 字符，chunk 数从 `35` 降到 `24`，retrieval preview 也明显更可读。
+这里的设计重点是“解析器可替换”：RAG indexer 只依赖 `ParsedDocument` 这个结构化输出，不直接依赖某个 PDF 库。这样后续即使接云端 OCR 服务，也不会影响 chunking、embedding 和 retrieval 逻辑。
 
 ## RAG 怎么接进 LangGraph
 

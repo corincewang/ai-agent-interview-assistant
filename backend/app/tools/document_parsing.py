@@ -1,10 +1,15 @@
 import re
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
-from pypdf import PdfReader
-
 from app.domain.models import DocumentType, ParsedDocument, SourceSpan
+
+
+DOCUMENT_NORMALIZATION_VERSION = "2026-05-12.unstructured-progressive-v1"
+UNSTRUCTURED_SUFFIXES = {".pdf", ".doc", ".docx"}
+MIN_EXTRACTABLE_PDF_CHARS = 300
+PDF_PARSE_STRATEGIES = ("fast", "hi_res", "ocr_only")
 
 
 class LocalDocumentParsingTool:
@@ -19,6 +24,18 @@ class LocalDocumentParsingTool:
         if suffix == ".pdf":
             return self._parse_pdf(file_path, document_type, document_id)
 
+        if suffix in {".doc", ".docx"}:
+            try:
+                return self._parse_unstructured_document(file_path, document_type, document_id)
+            except RuntimeError:
+                if suffix == ".docx":
+                    return self._parse_docx_fallback(
+                        file_path=file_path,
+                        document_type=document_type,
+                        document_id=document_id,
+                    )
+                raise
+
         if suffix in {".txt", ".md"}:
             return self._parse_text(file_path, document_type, document_id)
 
@@ -30,53 +47,87 @@ class LocalDocumentParsingTool:
         document_type: DocumentType,
         document_id: UUID | None,
     ) -> ParsedDocument:
-        document_id = document_id or uuid4()
-        suffix = file_path.suffix.lower()
-        reader = PdfReader(str(file_path))
-        page_texts: list[str] = []
-        source_spans: list[SourceSpan] = []
-        cursor = 0
+        return self._parse_pdf_with_progressive_unstructured(
+            file_path=file_path,
+            document_type=document_type,
+            document_id=document_id,
+        )
 
-        for page_index, page in enumerate(reader.pages, start=1):
-            text = _clean_extracted_text(page.extract_text() or "")
-            if not text.strip():
+    def _parse_pdf_with_progressive_unstructured(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None,
+    ) -> ParsedDocument:
+        resolved_document_id = document_id or uuid4()
+        errors: list[str] = []
+
+        for strategy in PDF_PARSE_STRATEGIES:
+            try:
+                document = self._parse_unstructured_document(
+                    file_path=file_path,
+                    document_type=document_type,
+                    document_id=resolved_document_id,
+                    strategy=strategy,
+                )
+            except Exception as exc:
+                errors.append(f"{strategy}:{type(exc).__name__}")
                 continue
 
-            start = cursor
-            page_texts.append(text)
-            cursor += len(text)
+            if _has_extractable_pdf_text(document):
+                document.metadata["parser_attempts"] = [*errors, f"{strategy}:success"]
+                return document
 
-            source_spans.append(
-                SourceSpan(
-                    document_id=document_id,
-                    page_number=page_index,
-                    start_char=start,
-                    end_char=cursor,
-                    text_excerpt=text[:500],
-                )
-            )
-            cursor += 1
+            errors.append(f"{strategy}:low_text")
+
+        raise RuntimeError(
+            "unstructured could not parse usable text from PDF. "
+            f"attempts={errors}"
+        )
+
+    def _parse_unstructured_document(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None,
+        strategy: str | None = None,
+    ) -> ParsedDocument:
+        document_id = document_id or uuid4()
+        suffix = file_path.suffix.lower()
+        elements = _partition_document(file_path, strategy=strategy)
+        normalized_elements = _normalize_unstructured_elements(elements, suffix)
+        raw_text = "\n\n".join(item["text"] for item in normalized_elements)
+        source_spans = _build_source_spans(document_id, normalized_elements)
+        sections = _extract_unstructured_sections(raw_text, normalized_elements)
 
         return ParsedDocument(
             id=document_id,
             document_type=document_type,
-            raw_text="\n".join(page_texts),
+            raw_text=raw_text,
             source_spans=source_spans,
             metadata={
                 "file_name": file_path.name,
                 "file_suffix": suffix,
-                "page_count": len(reader.pages),
+                "parser": "unstructured.partition.auto.partition",
+                "parser_strategy": strategy or "auto",
+                "normalization_version": DOCUMENT_NORMALIZATION_VERSION,
+                "element_count": len(normalized_elements),
+                "section_count": len(sections),
+                "sections": sections,
+                "element_types": _count_element_types(normalized_elements),
+                "page_count": _count_pages(normalized_elements),
             },
         )
 
-    def _parse_text(
+    def _parse_docx_fallback(
         self,
         file_path: Path,
         document_type: DocumentType,
         document_id: UUID | None,
     ) -> ParsedDocument:
         document_id = document_id or uuid4()
-        text = _clean_extracted_text(file_path.read_text(encoding="utf-8"))
+        text = _extract_docx_text(file_path)
+        sections = _extract_sections(text, source_format="word")
 
         return ParsedDocument(
             id=document_id,
@@ -94,18 +145,361 @@ class LocalDocumentParsingTool:
             metadata={
                 "file_name": file_path.name,
                 "file_suffix": file_path.suffix.lower(),
+                "parser": "unstructured.partition.auto.partition",
+                "parser_strategy": "docx-python-docx-fallback",
+                "normalization_version": DOCUMENT_NORMALIZATION_VERSION,
+                "section_count": len(sections),
+                "sections": sections,
+            },
+        )
+
+    def _parse_text(
+        self,
+        file_path: Path,
+        document_type: DocumentType,
+        document_id: UUID | None,
+    ) -> ParsedDocument:
+        document_id = document_id or uuid4()
+        suffix = file_path.suffix.lower()
+        text = _clean_structured_text(
+            file_path.read_text(encoding="utf-8"),
+            source_format="markdown" if suffix == ".md" else "text",
+        )
+        sections = _extract_sections(
+            text,
+            source_format="markdown" if suffix == ".md" else "text",
+        )
+
+        return ParsedDocument(
+            id=document_id,
+            document_type=document_type,
+            raw_text=text,
+            source_spans=[
+                SourceSpan(
+                    document_id=document_id,
+                    page_number=None,
+                    start_char=0,
+                    end_char=len(text),
+                    text_excerpt=text[:500],
+                )
+            ],
+            metadata={
+                "file_name": file_path.name,
+                "file_suffix": suffix,
+                "normalization_version": DOCUMENT_NORMALIZATION_VERSION,
+                "section_count": len(sections),
+                "sections": sections,
             },
         )
 
 
-def _clean_extracted_text(text: str) -> str:
+def _partition_document(file_path: Path, strategy: str | None = None) -> list[Any]:
+    from unstructured.partition.auto import partition
+
+    kwargs = {"filename": str(file_path)}
+    if strategy is not None:
+        kwargs["strategy"] = strategy
+    return list(partition(**kwargs))
+
+
+def _extract_docx_text(file_path: Path) -> str:
+    from docx import Document
+
+    document = Document(str(file_path))
+    paragraphs = [
+        paragraph.text.strip()
+        for paragraph in document.paragraphs
+        if paragraph.text.strip()
+    ]
+    return _clean_structured_text("\n\n".join(paragraphs), source_format="word")
+
+
+def _has_extractable_pdf_text(document: ParsedDocument) -> bool:
+    return len(document.raw_text.strip()) >= MIN_EXTRACTABLE_PDF_CHARS
+
+
+def _normalize_unstructured_elements(
+    elements: list[Any],
+    suffix: str,
+) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    cursor = 0
+
+    for index, element in enumerate(elements):
+        text = _clean_unstructured_text(str(element), suffix)
+        if not text:
+            continue
+
+        category = _element_category(element)
+        metadata = getattr(element, "metadata", None)
+        page_number = getattr(metadata, "page_number", None) if metadata is not None else None
+        start = cursor
+        end = start + len(text)
+
+        normalized.append(
+            {
+                "index": index,
+                "text": text,
+                "category": category,
+                "page_number": page_number,
+                "start_char": start,
+                "end_char": end,
+            }
+        )
+        cursor = end + 2
+
+    return normalized
+
+
+def _clean_unstructured_text(text: str, suffix: str) -> str:
+    if suffix == ".pdf":
+        return _clean_pdf_like_text(text)
+    return _clean_structured_text(text, source_format="word")
+
+
+def _clean_pdf_like_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _merge_isolated_symbol_lines(text)
     text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
     text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：（）、])", "", text)
     text = re.sub(r"(?<=[，。！？；：（）、])\s+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"\s+([，。！？；：、,.!?;:%）】》」』])", r"\1", text)
+    text = re.sub(r"([（【《「『])\s+", r"\1", text)
+    text = re.sub(r"\s*([+/#&])\s*", r"\1", text)
     text = re.sub(r"(?<=[A-Za-z0-9])\s*\n+\s*(?=[A-Za-z0-9])", " ", text)
     text = re.sub(r"(?<=[A-Za-z0-9])\s*\n+\s*(?=[\u4e00-\u9fff])", " ", text)
     text = re.sub(r"(?<=[\u4e00-\u9fff])\s*\n+\s*(?=[A-Za-z0-9])", " ", text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _merge_isolated_symbol_lines(text: str) -> str:
+    lines = text.splitlines()
+    merged: list[str] = []
+    symbol_pattern = re.compile(r"^[“”‘’\"'：:，,。.!！?？、；;（）()\[\]【】《》+\-/|]+$")
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line and symbol_pattern.match(line) and merged:
+            merged[-1] = f"{merged[-1]}{line}"
+            continue
+
+        if merged and merged[-1] and line:
+            previous = merged[-1]
+            if previous.endswith(("“", "‘", "\"", "'", "：", ":", "+", "/", "-", "|")):
+                merged[-1] = f"{previous}{line}"
+                continue
+
+        merged.append(raw_line)
+
+    return "\n".join(merged)
+
+
+def _element_category(element: Any) -> str:
+    category = getattr(element, "category", None)
+    if category:
+        return str(category)
+    return type(element).__name__
+
+
+def _build_source_spans(
+    document_id: UUID,
+    normalized_elements: list[dict[str, object]],
+) -> list[SourceSpan]:
+    return [
+        SourceSpan(
+            document_id=document_id,
+            page_number=_optional_int(element.get("page_number")),
+            start_char=int(element["start_char"]),
+            end_char=int(element["end_char"]),
+            text_excerpt=str(element["text"])[:500],
+        )
+        for element in normalized_elements
+    ]
+
+
+def _extract_unstructured_sections(
+    raw_text: str,
+    normalized_elements: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    heading_elements = [
+        element
+        for element in normalized_elements
+        if str(element["category"]).lower() == "title"
+        or _parse_heading(str(element["text"]).strip(), source_format="word") is not None
+    ]
+    sections: list[dict[str, object]] = []
+
+    for index, heading in enumerate(heading_elements):
+        next_start = (
+            int(heading_elements[index + 1]["start_char"])
+            if index + 1 < len(heading_elements)
+            else len(raw_text)
+        )
+        sections.append(
+            {
+                "title": str(heading["text"])[:120],
+                "level": 2 if str(heading["category"]).lower() == "title" else 3,
+                "start_char": int(heading["start_char"]),
+                "end_char": next_start,
+                "source": "unstructured",
+                "page_number": heading.get("page_number"),
+            }
+        )
+
+    return sections
+
+
+def _count_element_types(normalized_elements: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for element in normalized_elements:
+        category = str(element["category"])
+        counts[category] = counts.get(category, 0) + 1
+    return counts
+
+
+def _count_pages(normalized_elements: list[dict[str, object]]) -> int | None:
+    pages = {
+        page_number
+        for page_number in (element.get("page_number") for element in normalized_elements)
+        if page_number is not None
+    }
+    return len(pages) if pages else None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _clean_structured_text(text: str, source_format: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?<=[\u4e00-\u9fff])[ \t]+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"(?<=[\u4e00-\u9fff])[ \t]+(?=[，。！？；：（）、])", "", text)
+    text = re.sub(r"(?<=[，。！？；：（）、])[ \t]+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+
+    if source_format == "markdown":
+        text = _normalize_markdown_headings(text)
+
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _normalize_markdown_headings(text: str) -> str:
+    lines = text.splitlines()
+    normalized: list[str] = []
+
+    for line in lines:
+        heading_match = re.match(r"^(#{1,6})([^#\s].*)$", line)
+        if heading_match:
+            normalized.append(f"{heading_match.group(1)} {heading_match.group(2).strip()}")
+        else:
+            normalized.append(line)
+
+    return "\n".join(normalized)
+
+
+def _extract_sections(text: str, source_format: str) -> list[dict[str, object]]:
+    heading_spans = _find_heading_spans(text, source_format)
+    sections: list[dict[str, object]] = []
+
+    for index, heading in enumerate(heading_spans):
+        next_start = (
+            heading_spans[index + 1]["start_char"]
+            if index + 1 < len(heading_spans)
+            else len(text)
+        )
+        sections.append(
+            {
+                "title": heading["title"],
+                "level": heading["level"],
+                "start_char": heading["start_char"],
+                "end_char": next_start,
+            }
+        )
+
+    return sections
+
+
+def _find_heading_spans(text: str, source_format: str) -> list[dict[str, object]]:
+    headings: list[dict[str, object]] = []
+    cursor = 0
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped:
+            cursor += len(line)
+            continue
+
+        heading = _parse_heading(stripped, source_format)
+        if heading is not None:
+            headings.append(
+                {
+                    "title": heading["title"],
+                    "level": heading["level"],
+                    "start_char": cursor,
+                }
+            )
+
+        cursor += len(line)
+
+    return headings
+
+
+def _parse_heading(line: str, source_format: str) -> dict[str, object] | None:
+    if source_format == "markdown":
+        markdown_match = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if markdown_match:
+            return {
+                "title": markdown_match.group(2).strip(),
+                "level": len(markdown_match.group(1)),
+            }
+
+    numbered_match = re.match(
+        r"^((第[一二三四五六七八九十\d]+[章节部分])|([一二三四五六七八九十\d]+[、.．]))\s*(.{1,80})$",
+        line,
+    )
+    if numbered_match:
+        if re.search(r"[。！？.!?；;]$", line):
+            return None
+        return {"title": line, "level": 2}
+
+    if source_format != "pdf" and _looks_like_short_heading(line):
+        return {"title": line, "level": 3}
+
+    return None
+
+
+def _looks_like_short_heading(line: str) -> bool:
+    if len(line) > 48:
+        return False
+    if re.search(r"[。！？.!?；;，,]$", line):
+        return False
+    if re.match(r"^[-*+]\s+", line):
+        return False
+    if re.match(r"^\d+[\).]\s+", line):
+        return False
+
+    heading_keywords = (
+        "项目",
+        "经历",
+        "技能",
+        "教育",
+        "面试",
+        "问题",
+        "答案",
+        "知识",
+        "React",
+        "JavaScript",
+        "TypeScript",
+        "Python",
+        "Agent",
+        "RAG",
+        "Backend",
+        "Frontend",
+    )
+    return any(keyword in line for keyword in heading_keywords)
