@@ -199,6 +199,30 @@ parse pages 11-20 -> chunk -> embed -> upsert pgvector -> emit progress
 - 解析、分块、embedding、入库被拆成可观察的小步骤，后续可以做任务队列、重试、取消和断点续跑。
 - 大文件处理从 batch job 变成 incremental indexing，更接近真实生产系统的知识库构建方式。
 
+## 为什么用文档结构分块
+
+面试助手的知识库不是普通长文，而是大量“问题标题 + 回答 + 追问”的结构。如果只按固定字符数切，比如每 900 字切一次，就可能把问题和答案拆开，或者把一个答案后半段和下一个问题混在一起。这样 RAG 召回时，模型拿到的上下文就不完整。
+
+所以现在 chunking 改成结构优先：
+
+```text
+unstructured sections -> Markdown headings -> MarkdownHeaderTextSplitter -> recursive split for long sections
+```
+
+这里用 LangChain 的 `MarkdownHeaderTextSplitter`，先按 `# / ## / ###` 标题层级切分。由于 `unstructured` 有时会把正文长句误判成 `Title`，我没有盲信它，而是加了一层面经标题过滤：优先保留短标题、问句、`Q1`、`追问`、`为什么/怎么/如何/什么` 这类结构性标题。
+
+每个 chunk 会带上 metadata：
+
+```text
+chunk_strategy=markdown_header_structure
+section_title=为什么不用Context或者Zustand？
+section_path=为什么不用Context或者Zustand？
+source_file_name=国内面试准备.pdf
+page_window={start_page: 1, end_page: 10}
+```
+
+这样检索“Redux 状态管理”时，更容易召回完整的“为什么用 Redux / 为什么不用 Context 或 Zustand”问答，而不是召回一个被字符长度切断的片段。
+
 ## RAG 怎么接进 LangGraph
 
 我在 `InterviewGraphState` 里新增了：
