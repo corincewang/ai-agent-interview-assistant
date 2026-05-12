@@ -72,6 +72,17 @@ class LangGraphInterviewWorkflow:
                 document_type=document_input.document_type,
                 document_id=document_input.document_id,
             )
+            if document_input.document_type == DocumentType.KNOWLEDGE_BASE:
+                parsed_document = replace(
+                    parsed_document,
+                    metadata={
+                        **parsed_document.metadata,
+                        "source_file_path": str(document_input.file_path.resolve()),
+                    },
+                )
+                parsed_documents.append(parsed_document)
+                continue
+
             parsed_documents.append(parsed_document)
 
             if self.chunking_tool is not None:

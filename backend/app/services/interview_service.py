@@ -36,18 +36,25 @@ from app.skills.report_generation import LLMReportGenerationSkill
 from app.skills.resume_extraction import LLMResumeExtractionSkill
 from app.tools.chunking import RecursiveTextChunkingTool
 from app.tools.document_parsing import LocalDocumentParsingTool
+from app.tools.faiss_vector_store import FaissVectorStore, get_process_faiss_vector_store
 from app.tools.in_memory_vector_store import InMemoryVectorStore
-from app.tools.knowledge_base_indexer import DefaultKnowledgeBaseIndexer
 from app.tools.knowledge_retrieval import DefaultKnowledgeRetrievalTool
 from app.tools.mock_research import MockPageFetchTool, MockWebSearchTool
 from app.tools.postgres_vector_store import PostgresVectorStore
+from app.tools.windowed_knowledge_indexer import WindowedKnowledgeBaseIndexer
 from app.utils.serialization import to_jsonable
 
 
 class InterviewService:
-    def __init__(self, store: InMemoryInterviewSessionStore) -> None:
+    def __init__(
+        self,
+        store: InMemoryInterviewSessionStore,
+        *,
+        shared_faiss_vector_store: FaissVectorStore | None = None,
+    ) -> None:
         self.store = store
         self.persistence = OptionalPostgresPersistence(load_settings())
+        self._shared_faiss_vector_store = shared_faiss_vector_store
 
     async def create_session(
         self,
@@ -105,7 +112,12 @@ class InterviewService:
         llm = build_chat_model(settings)
         chunking_tool = RecursiveTextChunkingTool()
 
-        if settings.database_url is not None:
+        if settings.vector_store_backend == "postgres":
+            if not settings.database_url:
+                raise ValueError(
+                    "VECTOR_STORE_BACKEND=postgres requires DATABASE_URL to be set."
+                )
+
             engine = build_async_engine(settings.database_url)
             try:
                 session_factory = build_session_factory(engine)
@@ -119,6 +131,17 @@ class InterviewService:
                     )
             finally:
                 await engine.dispose()
+        elif settings.vector_store_backend == "faiss":
+            faiss_store = self._shared_faiss_vector_store or get_process_faiss_vector_store(
+                persist_directory=settings.faiss_persist_directory,
+                allow_local_index_pickles=settings.faiss_allow_local_index_pickles,
+            )
+            prepared_state = await self._run_preparation_workflow(
+                session=session,
+                llm=llm,
+                chunking_tool=chunking_tool,
+                vector_store=faiss_store,
+            )
         else:
             prepared_state = await self._run_preparation_workflow(
                 session=session,
@@ -151,8 +174,10 @@ class InterviewService:
         mock_web_search_tool = MockWebSearchTool()
         mock_page_fetch_tool = MockPageFetchTool()
 
+        document_parsing_tool = LocalDocumentParsingTool()
+
         workflow = LangGraphInterviewWorkflow(
-            document_parsing_tool=LocalDocumentParsingTool(),
+            document_parsing_tool=document_parsing_tool,
             chunking_tool=chunking_tool,
             resume_extraction_skill=LLMResumeExtractionSkill(llm),
             candidate_profiling_skill=LLMCandidateProfilingSkill(llm),
@@ -170,7 +195,8 @@ class InterviewService:
             ),
             interview_planning_skill=LLMInterviewPlanningSkill(llm),
             interview_plan_critic_skill=LLMInterviewPlanCriticSkill(llm),
-            knowledge_base_indexer=DefaultKnowledgeBaseIndexer(
+            knowledge_base_indexer=WindowedKnowledgeBaseIndexer(
+                document_parser=document_parsing_tool,
                 chunking_tool=chunking_tool,
                 embedding_provider=embedding_provider,
                 vector_store=vector_store,

@@ -17,10 +17,10 @@ from app.skills.jd_analysis import LLMJDAnalysisSkill
 from app.skills.resume_extraction import LLMResumeExtractionSkill
 from app.tools.chunking import RecursiveTextChunkingTool
 from app.tools.document_parsing import LocalDocumentParsingTool
-from app.tools.in_memory_vector_store import InMemoryVectorStore
-from app.tools.knowledge_base_indexer import DefaultKnowledgeBaseIndexer
+from app.tools.faiss_vector_store import FaissVectorStore
 from app.tools.knowledge_retrieval import DefaultKnowledgeRetrievalTool
 from app.tools.mock_research import MockPageFetchTool, MockWebSearchTool
+from app.tools.windowed_knowledge_indexer import WindowedKnowledgeBaseIndexer
 
 
 RESUME_PATH = Path("/Users/wanghan/Desktop/王涵_简历_0506更新版.pdf")
@@ -35,13 +35,15 @@ async def main() -> None:
 
     llm = build_chat_model(settings)
     embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
-    vector_store = InMemoryVectorStore()
+    vector_store = FaissVectorStore()
     chunker = RecursiveTextChunkingTool(chunk_size=900, chunk_overlap=120)
     mock_web_search_tool = MockWebSearchTool()
     mock_page_fetch_tool = MockPageFetchTool()
+    document_parser = LocalDocumentParsingTool()
 
     workflow = LangGraphInterviewWorkflow(
-        document_parsing_tool=LocalDocumentParsingTool(),
+        document_parsing_tool=document_parser,
+        chunking_tool=chunker,
         resume_extraction_skill=LLMResumeExtractionSkill(llm),
         candidate_profiling_skill=LLMCandidateProfilingSkill(llm),
         jd_analysis_skill=LLMJDAnalysisSkill(llm),
@@ -57,7 +59,8 @@ async def main() -> None:
             page_fetch_tool=mock_page_fetch_tool,
         ),
         interview_planning_skill=LLMInterviewPlanningSkill(llm),
-        knowledge_base_indexer=DefaultKnowledgeBaseIndexer(
+        knowledge_base_indexer=WindowedKnowledgeBaseIndexer(
+            document_parser=document_parser,
             chunking_tool=chunker,
             embedding_provider=embedding_provider,
             vector_store=vector_store,

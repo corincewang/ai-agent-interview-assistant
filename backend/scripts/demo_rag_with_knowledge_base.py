@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,9 +8,9 @@ from app.domain.models import DocumentType
 from app.providers.embeddings import OpenAIEmbeddingProvider
 from app.tools.chunking import RecursiveTextChunkingTool
 from app.tools.document_parsing import LocalDocumentParsingTool
-from app.tools.in_memory_vector_store import InMemoryVectorStore
-from app.tools.knowledge_base_indexer import DefaultKnowledgeBaseIndexer
+from app.tools.faiss_vector_store import FaissVectorStore
 from app.tools.knowledge_retrieval import DefaultKnowledgeRetrievalTool
+from app.tools.windowed_knowledge_indexer import WindowedKnowledgeBaseIndexer
 
 
 KNOWLEDGE_BASE_PATH = Path("/Users/wanghan/Desktop/简历+前端问题.pdf")
@@ -25,8 +26,9 @@ async def main() -> None:
     parser = LocalDocumentParsingTool()
     chunker = RecursiveTextChunkingTool(chunk_size=900, chunk_overlap=120)
     embedding_provider = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
-    vector_store = InMemoryVectorStore()
-    indexer = DefaultKnowledgeBaseIndexer(
+    vector_store = FaissVectorStore()
+    indexer = WindowedKnowledgeBaseIndexer(
+        document_parser=parser,
         chunking_tool=chunker,
         embedding_provider=embedding_provider,
         vector_store=vector_store,
@@ -40,9 +42,16 @@ async def main() -> None:
         file_path=KNOWLEDGE_BASE_PATH,
         document_type=DocumentType.KNOWLEDGE_BASE,
     )
+    document_with_path = replace(
+        document,
+        metadata={
+            **document.metadata,
+            "source_file_path": str(KNOWLEDGE_BASE_PATH.resolve()),
+        },
+    )
     indexing_result = await indexer.index_documents(
         session_id=session_id,
-        documents=[document],
+        documents=[document_with_path],
     )
 
     queries = [
