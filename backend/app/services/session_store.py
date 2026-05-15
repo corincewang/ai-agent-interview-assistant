@@ -16,6 +16,7 @@ class InterviewSessionRecord:
     user_id: UUID
     company_name: str
     role_title: str
+    target_track: str
     jd_text: str
     mode: InterviewMode
     document_inputs: list[DocumentInput] = field(default_factory=list)
@@ -34,6 +35,7 @@ class InMemoryInterviewSessionStore:
         self,
         company_name: str,
         role_title: str,
+        target_track: str,
         jd_text: str,
         mode: InterviewMode,
     ) -> InterviewSessionRecord:
@@ -42,6 +44,7 @@ class InMemoryInterviewSessionStore:
             user_id=uuid4(),
             company_name=company_name,
             role_title=role_title,
+            target_track=target_track,
             jd_text=jd_text,
             mode=mode,
         )
@@ -56,4 +59,3 @@ class InMemoryInterviewSessionStore:
         if session is None:
             raise KeyError(f"Interview session not found: {session_id}")
         return session
-

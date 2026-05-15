@@ -60,12 +60,14 @@ class InterviewService:
         self,
         company_name: str,
         role_title: str,
+        target_track: str,
         jd_text: str,
-        mode: InterviewMode,
+        mode: InterviewMode = InterviewMode.GENERAL_SWE,
     ) -> InterviewSessionRecord:
         session = self.store.create_session(
             company_name=company_name,
             role_title=role_title,
+            target_track=target_track,
             jd_text=jd_text,
             mode=mode,
         )
@@ -212,6 +214,7 @@ class InterviewService:
             user_id=session.user_id,
             company_name=session.company_name,
             role_title=session.role_title,
+            target_track=session.target_track,
             jd_text=session.jd_text,
             document_inputs=session.document_inputs,
         )

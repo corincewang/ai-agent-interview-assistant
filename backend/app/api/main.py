@@ -61,14 +61,15 @@ async def create_interview_session(
     session = await interview_service.create_session(
         company_name=request.company_name,
         role_title=request.role_title,
-        jd_text=request.job_description,
+        target_track=request.target_track,
+        jd_text=request.jd_text or "",
         mode=request.mode,
     )
     return CreateInterviewSessionResponse(
         session_id=session.session_id,
         company_name=session.company_name,
         role_title=session.role_title,
-        mode=session.mode,
+        target_track=session.target_track,
     )
 
 

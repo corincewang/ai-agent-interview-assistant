@@ -20,6 +20,12 @@ class InterviewMode(str, Enum):
     GENERAL_SWE = "general_swe"
 
 
+class InterviewQuestionType(str, Enum):
+    PROJECT_DEEP_DIVE = "project_deep_dive"
+    TECH_DEEP_DIVE = "tech_deep_dive"
+    SCENARIO = "scenario"
+
+
 class InterviewTurnRole(str, Enum):
     INTERVIEWER = "interviewer"
     CANDIDATE = "candidate"
@@ -237,6 +243,10 @@ class InterviewQuestion:
     difficulty: Literal["easy", "medium", "hard"]
     expected_signals: list[str]
     follow_up_strategy: list[str]
+    question_type: InterviewQuestionType | None = None
+    why_asked: str | None = None
+    evidence_chunk_ids: list[UUID] = field(default_factory=list)
+    source_scope: Literal["resume_written", "resume_unwritten", "tech_stack", "jd_scenario"] | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +257,7 @@ class InterviewPlan:
     rubric: dict[str, str]
     candidate_storyline: str
     planned_deep_dives: list[str]
+    target_track: str | None = None
 
 
 @dataclass(frozen=True)

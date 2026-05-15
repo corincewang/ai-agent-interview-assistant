@@ -94,6 +94,7 @@ def _to_domain_session(record: DBInterviewSessionRecord) -> InterviewSessionReco
         user_id=record.user_id,
         company_name=record.company_name,
         role_title=record.role_title,
+        target_track=record.role_title,
         jd_text=record.jd_text,
         mode=InterviewMode(record.mode),
     )

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.models import DocumentType, InterviewMode
 
@@ -8,15 +8,25 @@ from app.domain.models import DocumentType, InterviewMode
 class CreateInterviewSessionRequest(BaseModel):
     company_name: str = Field(min_length=1)
     role_title: str = Field(min_length=1)
-    job_description: str = Field(min_length=1)
+    target_track: str = Field(min_length=1)
+    jd_text: str | None = None
+    job_description: str | None = None
     mode: InterviewMode = InterviewMode.GENERAL_SWE
+
+    @model_validator(mode="after")
+    def _normalize_deprecated_fields(self):
+        if not self.jd_text and self.job_description:
+            self.jd_text = self.job_description
+        if not self.jd_text:
+            raise ValueError("jd_text is required")
+        return self
 
 
 class CreateInterviewSessionResponse(BaseModel):
     session_id: UUID
     company_name: str
     role_title: str
-    mode: InterviewMode
+    target_track: str
 
 
 class UploadDocumentResponse(BaseModel):

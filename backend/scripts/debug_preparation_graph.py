@@ -22,6 +22,7 @@ async def main() -> None:
         user_id=uuid4(),
         company_name="Demo Company",
         role_title="Software Engineer",
+        target_track="General SWE",
         jd_text="Build agentic software systems with Python, TypeScript, and modern web frameworks.",
         document_inputs=[
             DocumentInput(
@@ -46,4 +47,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

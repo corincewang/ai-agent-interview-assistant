@@ -24,6 +24,7 @@ class InterviewGraphState:
     user_id: UUID
     company_name: str
     role_title: str
+    target_track: str
     jd_text: str
     document_inputs: list[DocumentInput] = field(default_factory=list)
     parsed_documents: list[ParsedDocument] = field(default_factory=list)
