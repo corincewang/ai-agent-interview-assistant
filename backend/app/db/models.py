@@ -19,6 +19,7 @@ class InterviewSessionRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_track: Mapped[str] = mapped_column(String(255), nullable=False)
     jd_text: Mapped[str] = mapped_column(Text, nullable=False)
     mode: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="created")
@@ -136,6 +137,11 @@ class InterviewQuestionRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=False)
     expected_signals: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     follow_up_strategy: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    question_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+    )
 
     plan: Mapped[InterviewPlanRecord] = relationship(back_populates="questions")
     critique: Mapped["QuestionCritiqueRecord | None"] = relationship(
@@ -162,6 +168,11 @@ class InterviewPlanCritiqueRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     quality_gate_passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     coverage_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     revision_recommendations: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    web_intel_risk_notes: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         default=list,

@@ -61,14 +61,15 @@ async def create_interview_session(
     session = await interview_service.create_session(
         company_name=request.company_name,
         role_title=request.role_title,
-        jd_text=request.job_description,
+        target_track=request.target_track,
+        jd_text=request.jd_text or "",
         mode=request.mode,
     )
     return CreateInterviewSessionResponse(
         session_id=session.session_id,
         company_name=session.company_name,
         role_title=session.role_title,
-        mode=session.mode,
+        target_track=session.target_track,
     )
 
 
@@ -179,6 +180,8 @@ async def prepare_interview_session(session_id: UUID) -> PrepareSessionResponse:
         interview_plan_critique=to_jsonable(
             store.require_session(session_id).prepared_state.get("interview_plan_critique")
         ),
+        revised=interview_plan.revised,
+        revision_attempts_used=interview_plan.revision_attempts_used,
     )
 
 
@@ -192,9 +195,18 @@ async def get_interview_plan(session_id: UUID) -> InterviewPlanResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    revised = bool(interview_plan.get("revised", False))
+    revision_attempts_used_raw = interview_plan.get("revision_attempts_used", 0)
+    try:
+        revision_attempts_used = int(revision_attempts_used_raw)
+    except (TypeError, ValueError):
+        revision_attempts_used = 0
+
     return InterviewPlanResponse(
         session_id=session_id,
         interview_plan=interview_plan,
+        revised=revised,
+        revision_attempts_used=revision_attempts_used,
     )
 
 
@@ -213,6 +225,7 @@ async def get_interview_session_database_summary(
         session_id=summary.session_id,
         company_name=summary.company_name,
         role_title=summary.role_title,
+        target_track=summary.target_track,
         status=summary.status,
         document_count=summary.document_count,
         parsed_document_count=summary.parsed_document_count,

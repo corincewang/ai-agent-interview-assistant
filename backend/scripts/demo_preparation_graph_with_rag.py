@@ -76,6 +76,7 @@ async def main() -> None:
         user_id=uuid4(),
         company_name="Demo Frontend AI Company",
         role_title="Frontend / AI Agent Software Engineer",
+        target_track="Frontend Performance / AI Product UI",
         jd_text=(
             "Build production frontend experiences for AI agent products using React, "
             "TypeScript, streaming APIs, tool calling, retrieval, performance profiling, "

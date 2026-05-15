@@ -54,6 +54,24 @@ class PostgresInterviewArtifactRepository:
                     difficulty=question.difficulty,
                     expected_signals=to_jsonable(question.expected_signals),
                     follow_up_strategy=to_jsonable(question.follow_up_strategy),
+                    question_metadata=to_jsonable(
+                        {
+                            "question_type": (
+                                question.question_type.value
+                                if question.question_type is not None
+                                else None
+                            ),
+                            "source_scope": (
+                                question.source_scope.value
+                                if question.source_scope is not None
+                                else None
+                            ),
+                            "why_asked": question.why_asked,
+                            "evidence_chunk_ids": [
+                                str(chunk_id) for chunk_id in question.evidence_chunk_ids
+                            ],
+                        }
+                    ),
                 )
                 for index, question in enumerate(plan.questions, start=1)
             ]
@@ -85,6 +103,7 @@ class PostgresInterviewArtifactRepository:
             quality_gate_passed=critique.quality_gate_passed,
             coverage_summary=to_jsonable(critique.coverage_summary),
             revision_recommendations=to_jsonable(critique.revision_recommendations),
+            web_intel_risk_notes=to_jsonable(critique.web_intel_risk_notes),
             critique_payload=to_jsonable(critique),
         )
         self.session.add(critique_record)

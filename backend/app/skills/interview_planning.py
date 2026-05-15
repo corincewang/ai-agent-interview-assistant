@@ -6,6 +6,9 @@ from app.domain.models import (
     CandidateJobMatch,
     CandidateProfile,
     InterviewPlan,
+    InterviewPlanCritique,
+    InterviewQuestionSourceScope,
+    InterviewQuestionType,
     JobAnalysis,
     KnowledgeRetrievalResult,
     ResearchFinding,
@@ -31,17 +34,20 @@ class LLMInterviewPlanningSkill:
     async def create_interview_plan(
         self,
         session_id: UUID,
+        target_track: str,
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> InterviewPlan:
         structured_llm = self.llm.with_structured_output(InterviewPlan)
         chain = self.prompt | structured_llm
         prompt_inputs = InterviewPlanningPromptInputs(
             session_id=str(session_id),
+            target_track=target_track,
             candidate_profile=str(candidate_profile),
             job_analysis=str(job_analysis),
             candidate_job_match=str(candidate_job_match),
@@ -50,10 +56,103 @@ class LLMInterviewPlanningSkill:
             formatted_knowledge_context=format_knowledge_context_for_prompt(
                 knowledge_context
             ),
+            previous_plan_critique=format_previous_plan_critique_for_prompt(
+                previous_plan_critique
+            ),
             extra_variables=self.prompt_config.as_template_variables(),
         )
         extracted = await chain.ainvoke(prompt_inputs.as_template_variables())
-        return coerce_dataclass(InterviewPlan, extracted)
+        plan = coerce_dataclass(InterviewPlan, extracted)
+        finalized_plan = InterviewPlan(
+            session_id=plan.session_id,
+            mode=plan.mode,
+            questions=plan.questions,
+            rubric=plan.rubric,
+            candidate_storyline=plan.candidate_storyline,
+            planned_deep_dives=plan.planned_deep_dives,
+            target_track=target_track,
+        )
+        self._validate_plan_contract(finalized_plan)
+        return finalized_plan
+
+    def _validate_plan_contract(self, plan: InterviewPlan) -> None:
+        expected_count = self.prompt_config.target_question_count
+        if len(plan.questions) != expected_count:
+            raise ValueError(
+                f"InterviewPlan question count mismatch: expected {expected_count}, got {len(plan.questions)}."
+            )
+
+        project_count = 0
+        tech_count = 0
+        scenario_count = 0
+
+        for index, question in enumerate(plan.questions):
+            if question.question_type is None:
+                raise ValueError(
+                    f"InterviewPlan question at index {index} is missing question_type."
+                )
+            if question.source_scope is None:
+                raise ValueError(
+                    f"InterviewPlan question at index {index} is missing source_scope."
+                )
+            if question.why_asked is None or not question.why_asked.strip():
+                raise ValueError(
+                    f"InterviewPlan question at index {index} is missing why_asked."
+                )
+
+            if question.question_type == InterviewQuestionType.PROJECT_DEEP_DIVE:
+                if question.source_scope not in (
+                    InterviewQuestionSourceScope.RESUME_WRITTEN,
+                    InterviewQuestionSourceScope.RESUME_UNWRITTEN,
+                ):
+                    raise ValueError(
+                        "InterviewPlan project_deep_dive source_scope mismatch: "
+                        f"expected resume_written/resume_unwritten, got {question.source_scope}."
+                    )
+                project_count += 1
+            elif question.question_type == InterviewQuestionType.TECH_DEEP_DIVE:
+                if question.source_scope != InterviewQuestionSourceScope.TECH_STACK:
+                    raise ValueError(
+                        "InterviewPlan tech_deep_dive source_scope mismatch: "
+                        f"expected tech_stack, got {question.source_scope}."
+                    )
+                tech_count += 1
+            elif question.question_type == InterviewQuestionType.SCENARIO:
+                if question.source_scope not in (
+                    InterviewQuestionSourceScope.JD_SCENARIO,
+                    InterviewQuestionSourceScope.TECH_STACK,
+                    InterviewQuestionSourceScope.RESUME_WRITTEN,
+                    InterviewQuestionSourceScope.RESUME_UNWRITTEN,
+                    InterviewQuestionSourceScope.INTERVIEW_INTEL_WEB,
+                ):
+                    raise ValueError(
+                        "InterviewPlan scenario source_scope mismatch: "
+                        "expected one of "
+                        "jd_scenario/tech_stack/resume_written/resume_unwritten/interview_intel_web, "
+                        f"got {question.source_scope}."
+                    )
+                scenario_count += 1
+
+        expected_project_count = self.prompt_config.project_deep_dive_count
+        if project_count != expected_project_count:
+            raise ValueError(
+                "InterviewPlan project_deep_dive count mismatch: "
+                f"expected {expected_project_count}, got {project_count}."
+            )
+
+        expected_tech_count = self.prompt_config.tech_deep_dive_count
+        if tech_count != expected_tech_count:
+            raise ValueError(
+                "InterviewPlan tech_deep_dive count mismatch: "
+                f"expected {expected_tech_count}, got {tech_count}."
+            )
+
+        expected_scenario_count = self.prompt_config.scenario_count
+        if scenario_count != expected_scenario_count:
+            raise ValueError(
+                "InterviewPlan scenario count mismatch: "
+                f"expected {expected_scenario_count}, got {scenario_count}."
+            )
 
 
 def format_knowledge_context_for_prompt(
@@ -79,3 +178,32 @@ def format_knowledge_context_for_prompt(
         lines.append(f"Warnings: {knowledge_context.warnings}")
 
     return "\n\n".join(lines)
+
+
+def format_previous_plan_critique_for_prompt(
+    previous_plan_critique: InterviewPlanCritique | None,
+) -> str:
+    if previous_plan_critique is None:
+        return "No previous plan critique."
+
+    lines: list[str] = []
+    lines.append(f"overall_score={previous_plan_critique.overall_score:.3f}")
+    lines.append(f"quality_gate_passed={previous_plan_critique.quality_gate_passed}")
+
+    if previous_plan_critique.revision_recommendations:
+        lines.append("revision_recommendations:")
+        for recommendation in previous_plan_critique.revision_recommendations:
+            lines.append(f"- {recommendation}")
+
+    if previous_plan_critique.web_intel_risk_notes:
+        lines.append("web_intel_risk_notes:")
+        for note in previous_plan_critique.web_intel_risk_notes:
+            lines.append(f"- {note}")
+
+    low_score_question_count = 0
+    for question_critique in previous_plan_critique.question_critiques:
+        if question_critique.overall_score < 0.7:
+            low_score_question_count += 1
+
+    lines.append(f"low_score_question_count(<0.7)={low_score_question_count}")
+    return "\n".join(lines)

@@ -10,7 +10,7 @@ from app.agents.interview_plan_critic import InterviewPlanCriticAgent
 from app.agents.interview_planner import InterviewPlannerAgent
 from app.agents.jd_analyzer import JDAnalyzerAgent
 from app.agents.resume_extractor import ResumeExtractorAgent
-from app.domain.models import DocumentType
+from app.domain.models import DocumentType, InterviewPlan
 from app.graph.state import InterviewGraphState
 from app.ports.tools import (
     ChunkingTool,
@@ -250,23 +250,53 @@ class LangGraphInterviewWorkflow:
         return replace(state, planning_knowledge_context=planning_knowledge_context)
 
     def _build_planning_retrieval_query(self, state: InterviewGraphState) -> str:
-        query_parts = [
-            state.company_name,
-            state.role_title,
-            state.jd_text,
-        ]
+        query_parts: list[str] = []
+
+        query_parts.append(f"Company: {state.company_name}")
+        query_parts.append(f"Role title: {state.role_title}")
+        query_parts.append(f"Target track: {state.target_track}")
+        query_parts.append("Retrieval intent A: project deep dive evidence")
+        query_parts.append("Retrieval intent B: tech stack deep dive evidence")
+        query_parts.append("Retrieval intent C: JD-based scenario evidence")
+        query_parts.append(f"JD text:\n{state.jd_text}")
 
         if state.job_analysis is not None:
-            query_parts.extend(state.job_analysis.required_skills)
-            query_parts.extend(state.job_analysis.preferred_skills)
+            query_parts.append(
+                "JD required skills: "
+                + ", ".join(state.job_analysis.required_skills)
+            )
+            query_parts.append(
+                "JD preferred skills: "
+                + ", ".join(state.job_analysis.preferred_skills)
+            )
+            query_parts.append(
+                "JD responsibilities: "
+                + ", ".join(state.job_analysis.responsibilities)
+            )
 
         if state.candidate_profile is not None:
-            query_parts.extend(state.candidate_profile.technical_skills)
-            query_parts.extend(state.candidate_profile.follow_up_targets)
+            query_parts.append(
+                "Candidate technical skills: "
+                + ", ".join(state.candidate_profile.technical_skills)
+            )
+            query_parts.append(
+                "Candidate project highlights: "
+                + ", ".join(state.candidate_profile.project_highlights)
+            )
+            query_parts.append(
+                "Candidate follow-up targets: "
+                + ", ".join(state.candidate_profile.follow_up_targets)
+            )
 
         if state.candidate_job_match is not None:
-            query_parts.extend(state.candidate_job_match.candidate_matches)
-            query_parts.extend(state.candidate_job_match.role_specific_risk_areas)
+            query_parts.append(
+                "Candidate-job matches: "
+                + ", ".join(state.candidate_job_match.candidate_matches)
+            )
+            query_parts.append(
+                "Role-specific risk areas: "
+                + ", ".join(state.candidate_job_match.role_specific_risk_areas)
+            )
 
         return "\n".join(part for part in query_parts if part.strip())
 
@@ -283,6 +313,7 @@ class LangGraphInterviewWorkflow:
 
         agent = InterviewPlannerAgent(
             session_id=state.session_id,
+            target_track=state.target_track,
             candidate_profile=state.candidate_profile,
             job_analysis=state.job_analysis,
             candidate_job_match=state.candidate_job_match,
@@ -290,9 +321,31 @@ class LangGraphInterviewWorkflow:
             interview_intel=state.interview_intel,
             interview_planning_skill=self.interview_planning_skill,
             knowledge_context=state.planning_knowledge_context,
+            previous_plan_critique=state.interview_plan_critique,
         )
         interview_plan = await agent.run()
+        interview_plan = self._attach_planner_revision_metadata(
+            interview_plan=interview_plan,
+            planner_revision_attempts=state.planner_revision_attempts,
+        )
         return replace(state, interview_plan=interview_plan)
+
+    def _attach_planner_revision_metadata(
+        self,
+        interview_plan: InterviewPlan,
+        planner_revision_attempts: int,
+    ) -> InterviewPlan:
+        return InterviewPlan(
+            session_id=interview_plan.session_id,
+            mode=interview_plan.mode,
+            questions=interview_plan.questions,
+            rubric=interview_plan.rubric,
+            candidate_storyline=interview_plan.candidate_storyline,
+            planned_deep_dives=interview_plan.planned_deep_dives,
+            target_track=interview_plan.target_track,
+            revised=planner_revision_attempts > 0,
+            revision_attempts_used=planner_revision_attempts,
+        )
 
     async def critique_interview_plan(self, state: InterviewGraphState) -> InterviewGraphState:
         if self.interview_plan_critic_skill is None:
@@ -319,6 +372,18 @@ class LangGraphInterviewWorkflow:
         interview_plan_critique = await agent.run()
         return replace(state, interview_plan_critique=interview_plan_critique)
 
+    async def prepare_planner_revision(self, state: InterviewGraphState) -> InterviewGraphState:
+        return replace(state, planner_revision_attempts=state.planner_revision_attempts + 1)
+
+    def _route_after_critique(self, state: InterviewGraphState) -> str:
+        if state.interview_plan_critique is None:
+            return "finish"
+        if state.interview_plan_critique.quality_gate_passed:
+            return "finish"
+        if state.planner_revision_attempts >= state.planner_max_revision_attempts:
+            return "finish"
+        return "revise"
+
     async def run_live_turn(self, state: InterviewGraphState) -> InterviewGraphState:
         return state
 
@@ -342,6 +407,7 @@ class LangGraphInterviewWorkflow:
         graph.add_node("retrieve_planning_context", self.retrieve_planning_context)
         graph.add_node("plan_interview", self.plan_interview)
         graph.add_node("critique_interview_plan", self.critique_interview_plan)
+        graph.add_node("prepare_planner_revision", self.prepare_planner_revision)
 
         graph.add_edge(START, "ingest_documents")
         graph.add_edge("ingest_documents", "index_knowledge_base")
@@ -354,7 +420,15 @@ class LangGraphInterviewWorkflow:
         graph.add_edge("collect_interview_intel", "retrieve_planning_context")
         graph.add_edge("retrieve_planning_context", "plan_interview")
         graph.add_edge("plan_interview", "critique_interview_plan")
-        graph.add_edge("critique_interview_plan", END)
+        graph.add_conditional_edges(
+            "critique_interview_plan",
+            self._route_after_critique,
+            {
+                "revise": "prepare_planner_revision",
+                "finish": END,
+            },
+        )
+        graph.add_edge("prepare_planner_revision", "plan_interview")
 
         return graph.compile()
 

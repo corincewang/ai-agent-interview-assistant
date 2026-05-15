@@ -4,6 +4,7 @@ from app.domain.models import (
     CandidateJobMatch,
     CandidateProfile,
     InterviewPlan,
+    InterviewPlanCritique,
     JobAnalysis,
     KnowledgeRetrievalResult,
     ResearchFinding,
@@ -15,6 +16,7 @@ class InterviewPlannerAgent:
     def __init__(
         self,
         session_id: UUID,
+        target_track: str,
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
@@ -22,8 +24,10 @@ class InterviewPlannerAgent:
         interview_intel: list[ResearchFinding],
         interview_planning_skill: InterviewPlanningSkill,
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> None:
         self.session_id = session_id
+        self.target_track = target_track
         self.candidate_profile = candidate_profile
         self.job_analysis = job_analysis
         self.candidate_job_match = candidate_job_match
@@ -31,14 +35,17 @@ class InterviewPlannerAgent:
         self.interview_intel = interview_intel
         self.interview_planning_skill = interview_planning_skill
         self.knowledge_context = knowledge_context
+        self.previous_plan_critique = previous_plan_critique
 
     async def run(self) -> InterviewPlan:
         return await self.interview_planning_skill.create_interview_plan(
             session_id=self.session_id,
+            target_track=self.target_track,
             candidate_profile=self.candidate_profile,
             job_analysis=self.job_analysis,
             candidate_job_match=self.candidate_job_match,
             company_sources=self.company_sources,
             interview_intel=self.interview_intel,
             knowledge_context=self.knowledge_context,
+            previous_plan_critique=self.previous_plan_critique,
         )

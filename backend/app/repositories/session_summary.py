@@ -19,6 +19,7 @@ class InterviewSessionDatabaseSummary:
     session_id: UUID
     company_name: str
     role_title: str
+    target_track: str
     status: str
     document_count: int
     parsed_document_count: int
@@ -86,6 +87,7 @@ class PostgresSessionSummaryRepository:
             session_id=session_record.id,
             company_name=session_record.company_name,
             role_title=session_record.role_title,
+            target_track=session_record.target_track,
             status=session_record.status,
             document_count=document_count,
             parsed_document_count=parsed_document_count,

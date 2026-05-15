@@ -16,6 +16,7 @@ class PostgresInterviewSessionRepository:
         self,
         company_name: str,
         role_title: str,
+        target_track: str,
         jd_text: str,
         mode: InterviewMode,
         user_id: UUID | None = None,
@@ -24,6 +25,7 @@ class PostgresInterviewSessionRepository:
             user_id=user_id or uuid4(),
             company_name=company_name,
             role_title=role_title,
+            target_track=target_track,
             jd_text=jd_text,
             mode=mode.value,
             status="created",
@@ -44,6 +46,7 @@ class PostgresInterviewSessionRepository:
                 user_id=session_record.user_id,
                 company_name=session_record.company_name,
                 role_title=session_record.role_title,
+                target_track=session_record.target_track,
                 jd_text=session_record.jd_text,
                 mode=session_record.mode.value,
                 status=status,
@@ -53,6 +56,7 @@ class PostgresInterviewSessionRepository:
             record.user_id = session_record.user_id
             record.company_name = session_record.company_name
             record.role_title = session_record.role_title
+            record.target_track = session_record.target_track
             record.jd_text = session_record.jd_text
             record.mode = session_record.mode.value
             record.status = status
@@ -94,6 +98,7 @@ def _to_domain_session(record: DBInterviewSessionRecord) -> InterviewSessionReco
         user_id=record.user_id,
         company_name=record.company_name,
         role_title=record.role_title,
+        target_track=record.target_track,
         jd_text=record.jd_text,
         mode=InterviewMode(record.mode),
     )

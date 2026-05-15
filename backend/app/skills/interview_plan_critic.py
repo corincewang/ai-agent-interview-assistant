@@ -7,6 +7,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     InterviewPlanCritique,
+    InterviewQuestionSourceScope,
     JobAnalysis,
     KnowledgeRetrievalResult,
 )
@@ -50,4 +51,25 @@ class LLMInterviewPlanCriticSkill:
             extra_variables=self.prompt_config.as_template_variables(),
         )
         extracted = await chain.ainvoke(prompt_inputs.as_template_variables())
-        return coerce_dataclass(InterviewPlanCritique, extracted)
+        critique = coerce_dataclass(InterviewPlanCritique, extracted)
+        web_intel_used = False
+        for question in interview_plan.questions:
+            if question.source_scope == InterviewQuestionSourceScope.INTERVIEW_INTEL_WEB:
+                web_intel_used = True
+                break
+
+        web_intel_risk_notes = list(critique.web_intel_risk_notes)
+        if web_intel_used and len(web_intel_risk_notes) == 0:
+            web_intel_risk_notes.append(
+                "Plan uses interview_intel_web source. Review whether each related question is grounded in candidate resume/JD evidence and not only web anecdotes."
+            )
+
+        return InterviewPlanCritique(
+            session_id=critique.session_id,
+            overall_score=critique.overall_score,
+            quality_gate_passed=critique.quality_gate_passed,
+            question_critiques=critique.question_critiques,
+            coverage_summary=critique.coverage_summary,
+            revision_recommendations=critique.revision_recommendations,
+            web_intel_risk_notes=web_intel_risk_notes,
+        )

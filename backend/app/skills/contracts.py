@@ -7,6 +7,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     InterviewPlanCritique,
+    InterviewPlanCritique,
     InterviewQuestion,
     InterviewTurn,
     JobAnalysis,
@@ -96,12 +97,14 @@ class InterviewPlanningSkill(Protocol):
     async def create_interview_plan(
         self,
         session_id: UUID,
+        target_track: str,
         candidate_profile: CandidateProfile,
         job_analysis: JobAnalysis,
         candidate_job_match: CandidateJobMatch,
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> InterviewPlan:
         ...
 

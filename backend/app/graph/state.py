@@ -24,6 +24,7 @@ class InterviewGraphState:
     user_id: UUID
     company_name: str
     role_title: str
+    target_track: str
     jd_text: str
     document_inputs: list[DocumentInput] = field(default_factory=list)
     parsed_documents: list[ParsedDocument] = field(default_factory=list)
@@ -38,5 +39,7 @@ class InterviewGraphState:
     interview_intel: list[ResearchFinding] = field(default_factory=list)
     interview_plan: InterviewPlan | None = None
     interview_plan_critique: InterviewPlanCritique | None = None
+    planner_revision_attempts: int = 0
+    planner_max_revision_attempts: int = 1
     transcript: list[InterviewTurn] = field(default_factory=list)
     final_report: str | None = None

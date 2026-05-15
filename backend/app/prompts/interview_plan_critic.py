@@ -11,6 +11,7 @@ class InterviewPlanCriticPromptConfig:
         "resume_grounding_score: the question is grounded in concrete candidate experience",
         "jd_coverage_score: the question tests a stated role requirement or responsibility",
         "rag_grounding_score: the question uses retrieved knowledge context when available",
+        "web_intel_quality_score: if source_scope is interview_intel_web, the question is still candidate/JD aligned and not based on generic hype",
         "specificity_score: the question is concrete and not generic",
         "follow_up_potential_score: the question supports realistic follow-up probing",
     )
@@ -81,6 +82,10 @@ Scoring rules:
 
 Quality dimensions:
 {quality_dimensions}
+
+Additional critic checks:
+- If a question uses source_scope=interview_intel_web, verify it is role-relevant, candidate-relevant, and does not overfit to unverifiable rumors.
+- Penalize questions that use interview_intel_web as the only grounding while ignoring resume/JD signals.
 
 Return an InterviewPlanCritique object. Set quality_gate_passed to true only when the overall score is at least the passing threshold and no major coverage gap exists.
 """.strip()

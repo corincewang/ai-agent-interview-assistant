@@ -65,6 +65,7 @@ async def main() -> None:
         user_id=uuid4(),
         company_name="Demo AI Company",
         role_title="AI Agent Software Engineer",
+        target_track="AI Agent / Full-Stack",
         jd_text=(
             "We are looking for a software engineer to build AI agent workflows with Python, "
             "TypeScript, React, tool calling, retrieval, testing, and production-ready APIs."
@@ -155,4 +156,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
