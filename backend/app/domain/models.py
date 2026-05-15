@@ -251,10 +251,6 @@ class InterviewQuestion:
     difficulty: Literal["easy", "medium", "hard"]
     expected_signals: list[str]
     follow_up_strategy: list[str]
-    question_type: InterviewQuestionType | None = None
-    why_asked: str | None = None
-    evidence_chunk_ids: list[UUID] = field(default_factory=list)
-    source_scope: InterviewQuestionSourceScope | None = None
 
 
 @dataclass(frozen=True)
@@ -265,9 +261,6 @@ class InterviewPlan:
     rubric: dict[str, str]
     candidate_storyline: str
     planned_deep_dives: list[str]
-    target_track: str | None = None
-    revised: bool = False
-    revision_attempts_used: int = 0
 
 
 @dataclass(frozen=True)
