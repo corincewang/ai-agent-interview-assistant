@@ -10,7 +10,12 @@ from app.agents.interview_plan_critic import InterviewPlanCriticAgent
 from app.agents.interview_planner import InterviewPlannerAgent
 from app.agents.jd_analyzer import JDAnalyzerAgent
 from app.agents.resume_extractor import ResumeExtractorAgent
-from app.domain.models import DocumentType, InterviewPlan
+from app.domain.models import (
+    DocumentType,
+    InterviewPlan,
+    KnowledgeRetrievalResult,
+    RetrievedKnowledgeChunk,
+)
 from app.graph.state import InterviewGraphState
 from app.ports.tools import (
     ChunkingTool,
@@ -28,9 +33,14 @@ from app.skills.contracts import (
     InterviewPlanningSkill,
     ResumeExtractionSkill,
 )
+from app.tools.knowledge_reranker import rerank_retrieved_chunks
 
 
 class LangGraphInterviewWorkflow:
+    PLANNING_RETRIEVAL_PREFETCH_K = 24
+    PLANNING_RETRIEVAL_TOP_K_PER_QUERY = 12
+    PLANNING_RETRIEVAL_FINAL_TOP_K = 12
+
     def __init__(
         self,
         document_parsing_tool: DocumentParsingTool | None = None,
@@ -236,69 +246,184 @@ class LangGraphInterviewWorkflow:
         if state.knowledge_indexing_result is None:
             return state
 
-        query = self._build_planning_retrieval_query(state)
-        if not query:
+        query_map = self._build_planning_retrieval_queries(state)
+        if not query_map:
             return state
 
-        planning_knowledge_context = await self.knowledge_retrieval_tool.retrieve_knowledge(
+        retrieval_results: list[KnowledgeRetrievalResult] = []
+        retrieval_debug_rows: list[str] = []
+        for query_name, query_text in query_map.items():
+            result = await self.knowledge_retrieval_tool.retrieve_knowledge(
+                session_id=state.session_id,
+                query=query_text,
+                top_k=self.PLANNING_RETRIEVAL_TOP_K_PER_QUERY,
+                prefetch_k=self.PLANNING_RETRIEVAL_PREFETCH_K,
+                document_types=[DocumentType.KNOWLEDGE_BASE],
+            )
+            retrieval_debug_rows.append(
+                f"planning_retrieval.query={query_name} hits={len(result.chunks)}"
+            )
+            result = self._tag_retrieval_query(result=result, query_name=query_name)
+            retrieval_results.append(result)
+
+        planning_knowledge_context = self._merge_planning_retrieval_results(
             session_id=state.session_id,
-            query=query,
-            top_k=5,
-            prefetch_k=20,
-            document_types=[DocumentType.KNOWLEDGE_BASE],
+            retrieval_results=retrieval_results,
+            retrieval_debug_rows=retrieval_debug_rows,
         )
         return replace(state, planning_knowledge_context=planning_knowledge_context)
 
-    def _build_planning_retrieval_query(self, state: InterviewGraphState) -> str:
-        query_parts: list[str] = []
-
-        query_parts.append(f"Company: {state.company_name}")
-        query_parts.append(f"Role title: {state.role_title}")
-        query_parts.append(f"Target track: {state.target_track}")
-        query_parts.append("Retrieval intent A: project deep dive evidence")
-        query_parts.append("Retrieval intent B: tech stack deep dive evidence")
-        query_parts.append("Retrieval intent C: JD-based scenario evidence")
-        query_parts.append(f"JD text:\n{state.jd_text}")
+    def _build_planning_retrieval_queries(self, state: InterviewGraphState) -> dict[str, str]:
+        common_parts: list[str] = []
+        common_parts.append(f"Company: {state.company_name}")
+        common_parts.append(f"Role title: {state.role_title}")
+        common_parts.append(f"Target track: {state.target_track}")
+        common_parts.append(f"JD text:\n{state.jd_text}")
 
         if state.job_analysis is not None:
-            query_parts.append(
-                "JD required skills: "
-                + ", ".join(state.job_analysis.required_skills)
-            )
-            query_parts.append(
-                "JD preferred skills: "
-                + ", ".join(state.job_analysis.preferred_skills)
-            )
-            query_parts.append(
-                "JD responsibilities: "
-                + ", ".join(state.job_analysis.responsibilities)
-            )
+            common_parts.append("JD required skills: " + ", ".join(state.job_analysis.required_skills))
+            common_parts.append("JD preferred skills: " + ", ".join(state.job_analysis.preferred_skills))
+            common_parts.append("JD responsibilities: " + ", ".join(state.job_analysis.responsibilities))
 
         if state.candidate_profile is not None:
-            query_parts.append(
-                "Candidate technical skills: "
-                + ", ".join(state.candidate_profile.technical_skills)
+            common_parts.append(
+                "Candidate technical skills: " + ", ".join(state.candidate_profile.technical_skills)
             )
-            query_parts.append(
-                "Candidate project highlights: "
-                + ", ".join(state.candidate_profile.project_highlights)
+            common_parts.append(
+                "Candidate project highlights: " + ", ".join(state.candidate_profile.project_highlights)
             )
-            query_parts.append(
-                "Candidate follow-up targets: "
-                + ", ".join(state.candidate_profile.follow_up_targets)
+            common_parts.append(
+                "Candidate follow-up targets: " + ", ".join(state.candidate_profile.follow_up_targets)
             )
 
         if state.candidate_job_match is not None:
-            query_parts.append(
-                "Candidate-job matches: "
-                + ", ".join(state.candidate_job_match.candidate_matches)
+            common_parts.append(
+                "Candidate-job matches: " + ", ".join(state.candidate_job_match.candidate_matches)
             )
-            query_parts.append(
+            common_parts.append(
                 "Role-specific risk areas: "
                 + ", ".join(state.candidate_job_match.role_specific_risk_areas)
             )
 
-        return "\n".join(part for part in query_parts if part.strip())
+        common_context = "\n".join(part for part in common_parts if part.strip())
+        if not common_context:
+            return {}
+
+        queries: dict[str, str] = {}
+        queries["project_deep_dive"] = (
+            "Retrieval intent: project deep dive evidence for written and implied projects.\n"
+            + common_context
+        )
+        queries["tech_deep_dive"] = (
+            "Retrieval intent: technical deep dive evidence for stack-level questions.\n"
+            + common_context
+        )
+        queries["scenario"] = (
+            "Retrieval intent: scenario question evidence for JD constraints and production tradeoffs.\n"
+            + common_context
+        )
+        return queries
+
+    def _merge_planning_retrieval_results(
+        self,
+        session_id,
+        retrieval_results: list[KnowledgeRetrievalResult],
+        retrieval_debug_rows: list[str],
+    ) -> KnowledgeRetrievalResult:
+        chunk_by_id: dict[str, RetrievedKnowledgeChunk] = {}
+        chunk_hit_counts: dict[str, int] = {}
+        warnings: list[str] = []
+        total_candidates = 0
+
+        for result in retrieval_results:
+            warnings.extend(result.warnings)
+            for chunk in result.chunks:
+                total_candidates += 1
+                chunk_id = str(chunk.chunk.id)
+                if chunk_id not in chunk_hit_counts:
+                    chunk_hit_counts[chunk_id] = 0
+                chunk_hit_counts[chunk_id] += 1
+                if chunk_id not in chunk_by_id:
+                    chunk_by_id[chunk_id] = chunk
+                    continue
+                existing_chunk = chunk_by_id[chunk_id]
+                if chunk.score > existing_chunk.score:
+                    chunk_by_id[chunk_id] = chunk
+
+        merged_chunks = list(chunk_by_id.values())
+        pre_rerank_top5 = [str(item.chunk.id) for item in merged_chunks[:5]]
+        merged_chunks.sort(
+            key=lambda item: (
+                item.score,
+                chunk_hit_counts.get(str(item.chunk.id), 0),
+            ),
+            reverse=True,
+        )
+        pre_rerank_sorted_top5 = [str(item.chunk.id) for item in merged_chunks[:5]]
+
+        # Stage-2 rerank: cross-encoder reranks the merged candidate pool.
+        merged_query = " ".join(
+            [
+                "project deep dive evidence",
+                "tech stack deep dive evidence",
+                "jd scenario evidence",
+            ]
+        )
+        if len(merged_chunks) > 1:
+            merged_chunks = rerank_retrieved_chunks(merged_query, merged_chunks)
+        post_rerank_top5 = [str(item.chunk.id) for item in merged_chunks[:5]]
+
+        merged_chunks = merged_chunks[: self.PLANNING_RETRIEVAL_FINAL_TOP_K]
+
+        reranked_chunks: list[RetrievedKnowledgeChunk] = []
+        for index, chunk in enumerate(merged_chunks, start=1):
+            reranked_chunks.append(
+                RetrievedKnowledgeChunk(
+                    chunk=chunk.chunk,
+                    score=chunk.score,
+                    rank=index,
+                    retrieval_query=chunk.retrieval_query,
+                )
+            )
+
+        merged_query = "MULTI_QUERY(project_deep_dive, tech_deep_dive, scenario)+RERANK"
+        warnings.extend(retrieval_debug_rows)
+        warnings.append(f"planning_retrieval.total_candidates={total_candidates}")
+        warnings.append(f"planning_retrieval.unique_candidates={len(chunk_by_id)}")
+        warnings.append(f"planning_retrieval.prefilter_top5={pre_rerank_top5}")
+        warnings.append(f"planning_retrieval.presort_top5={pre_rerank_sorted_top5}")
+        warnings.append(f"planning_retrieval.rerank_top5={post_rerank_top5}")
+        warnings.append(
+            f"planning_retrieval.final_top_k={self.PLANNING_RETRIEVAL_FINAL_TOP_K}"
+        )
+        return KnowledgeRetrievalResult(
+            session_id=session_id,
+            query=merged_query,
+            chunks=reranked_chunks,
+            warnings=warnings,
+        )
+
+    def _tag_retrieval_query(
+        self,
+        result: KnowledgeRetrievalResult,
+        query_name: str,
+    ) -> KnowledgeRetrievalResult:
+        tagged_chunks: list[RetrievedKnowledgeChunk] = []
+        for chunk in result.chunks:
+            tagged_chunks.append(
+                RetrievedKnowledgeChunk(
+                    chunk=chunk.chunk,
+                    score=chunk.score,
+                    rank=chunk.rank,
+                    retrieval_query=f"{query_name}:{chunk.retrieval_query}",
+                )
+            )
+        return KnowledgeRetrievalResult(
+            session_id=result.session_id,
+            query=f"{query_name}:{result.query}",
+            chunks=tagged_chunks,
+            warnings=result.warnings,
+        )
 
     async def plan_interview(self, state: InterviewGraphState) -> InterviewGraphState:
         if self.interview_planning_skill is None:
