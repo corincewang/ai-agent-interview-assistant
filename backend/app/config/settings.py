@@ -18,6 +18,8 @@ class Settings:
     faiss_persist_directory: Path | None
     #: Only load ``*.pkl`` docstores produced by this app (pickle deserialization risk).
     faiss_allow_local_index_pickles: bool
+    langsmith_tracing: bool
+    langsmith_project: str
 
 
 def load_settings() -> Settings:
@@ -38,6 +40,8 @@ def load_settings() -> Settings:
             "FAISS_ALLOW_LOCAL_INDEX_PICKLES",
             default=True,
         ),
+        langsmith_tracing=_read_bool("LANGSMITH_TRACING", default=False),
+        langsmith_project=os.getenv("LANGSMITH_PROJECT", "ai-agent-interview-assistant"),
     )
 
 

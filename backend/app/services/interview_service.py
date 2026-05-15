@@ -218,7 +218,28 @@ class InterviewService:
             jd_text=session.jd_text,
             document_inputs=session.document_inputs,
         )
-        return await workflow.build_preparation_graph().ainvoke(initial_state)
+        runnable = workflow.build_preparation_graph()
+        if not settings.langsmith_tracing:
+            return await runnable.ainvoke(initial_state)
+
+        try:
+            from langchain_core.tracers.langchain import LangChainTracer
+        except ImportError:
+            return await runnable.ainvoke(initial_state)
+
+        tracer = LangChainTracer(project_name=settings.langsmith_project)
+        config = {
+            "callbacks": [tracer],
+            "tags": ["prepare_session", "planner", "rag"],
+            "metadata": {
+                "session_id": str(session.session_id),
+                "company_name": session.company_name,
+                "role_title": session.role_title,
+                "target_track": session.target_track,
+                "vector_store_backend": settings.vector_store_backend,
+            },
+        }
+        return await runnable.ainvoke(initial_state, config=config)
 
     def get_interview_plan(self, session_id: UUID) -> InterviewPlan:
         session = self.store.require_session(session_id)

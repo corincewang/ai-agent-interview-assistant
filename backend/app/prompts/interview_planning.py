@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 class InterviewPlanningPromptConfig:
     target_question_count: int = 12
     self_consistency_candidates: int = 3
+    max_generation_attempts: int = 3
     min_resume_grounded_questions: int = 6
     min_jd_grounded_questions: int = 6
     min_knowledge_grounded_questions: int = 4
@@ -37,6 +38,7 @@ class InterviewPlanningPromptConfig:
         return {
             "target_question_count": self.target_question_count,
             "self_consistency_candidates": self.self_consistency_candidates,
+            "max_generation_attempts": self.max_generation_attempts,
             "min_resume_grounded_questions": self.min_resume_grounded_questions,
             "min_jd_grounded_questions": self.min_jd_grounded_questions,
             "min_knowledge_grounded_questions": self.min_knowledge_grounded_questions,
@@ -59,7 +61,9 @@ class InterviewPlanningPromptInputs:
     company_sources: str
     interview_intel: str
     formatted_knowledge_context: str
+    question_blueprint: str
     previous_plan_critique: str
+    validation_feedback: str
     extra_variables: dict[str, str | int] = field(default_factory=dict)
 
     def as_template_variables(self) -> dict[str, str | int]:
@@ -72,7 +76,9 @@ class InterviewPlanningPromptInputs:
             "company_sources": self.company_sources,
             "interview_intel": self.interview_intel,
             "formatted_knowledge_context": self.formatted_knowledge_context,
+            "question_blueprint": self.question_blueprint,
             "previous_plan_critique": self.previous_plan_critique,
+            "validation_feedback": self.validation_feedback,
             **self.extra_variables,
         }
 
@@ -109,13 +115,19 @@ The plan must contain exactly {target_question_count} questions and must be tail
 - company/interview intel when available,
 - retrieved knowledge-base context when available.
 
-Required question mix:
+Required question mix themes:
 {question_mix}
 
 Required category distribution:
 - question_type=project_deep_dive: exactly {project_deep_dive_count} questions
 - question_type=tech_deep_dive: exactly {tech_deep_dive_count} questions
 - question_type=scenario: exactly {scenario_count} questions
+
+Generation contract:
+- You MUST follow the provided question_blueprint as a hard slot contract.
+- Generate one question per slot in order.
+- For each slot, keep question_type exactly equal to blueprint.question_type.
+- For each slot, source_scope must be chosen only from blueprint.allowed_source_scopes.
 """.strip()
 
 
@@ -153,6 +165,7 @@ Privately draft {self_consistency_candidates} candidate interview plans with dif
 Revision strategy:
 - If previous_plan_critique is provided and quality_gate_passed is false, treat revision_recommendations and low-score signals as hard optimization targets for this new draft.
 - Improve weak spots from previous_plan_critique without breaking fixed constraints (12 total questions, 4/4/4 category split, required source_scope consistency).
+- If validation_feedback is provided, treat it as a hard schema contract correction request and fix those exact mismatches in this attempt.
 
 Structured output:
 Return only an object matching the InterviewPlan schema. Do not add prose outside the schema.
@@ -184,8 +197,14 @@ Interview intel:
 Retrieved knowledge-base context:
 {formatted_knowledge_context}
 
+Question blueprint (hard slot contract):
+{question_blueprint}
+
 Previous plan critique (if any):
 {previous_plan_critique}
+
+Validation feedback from previous failed attempt (if any):
+{validation_feedback}
 """.strip()
 
 

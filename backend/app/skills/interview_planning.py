@@ -1,3 +1,5 @@
+import json
+from dataclasses import replace
 from uuid import UUID
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -7,6 +9,7 @@ from app.domain.models import (
     CandidateProfile,
     InterviewPlan,
     InterviewPlanCritique,
+    InterviewQuestion,
     InterviewQuestionSourceScope,
     InterviewQuestionType,
     JobAnalysis,
@@ -45,35 +48,122 @@ class LLMInterviewPlanningSkill:
     ) -> InterviewPlan:
         structured_llm = self.llm.with_structured_output(InterviewPlan)
         chain = self.prompt | structured_llm
-        prompt_inputs = InterviewPlanningPromptInputs(
-            session_id=str(session_id),
-            target_track=target_track,
-            candidate_profile=str(candidate_profile),
-            job_analysis=str(job_analysis),
-            candidate_job_match=str(candidate_job_match),
-            company_sources=str(company_sources),
-            interview_intel=str(interview_intel),
-            formatted_knowledge_context=format_knowledge_context_for_prompt(
-                knowledge_context
-            ),
-            previous_plan_critique=format_previous_plan_critique_for_prompt(
-                previous_plan_critique
-            ),
-            extra_variables=self.prompt_config.as_template_variables(),
+        validation_feedback = "No validation feedback."
+        last_error_message = "unknown validation error"
+        question_blueprint = self._build_question_blueprint()
+
+        for attempt in range(1, self.prompt_config.max_generation_attempts + 1):
+            prompt_inputs = InterviewPlanningPromptInputs(
+                session_id=str(session_id),
+                target_track=target_track,
+                candidate_profile=str(candidate_profile),
+                job_analysis=str(job_analysis),
+                candidate_job_match=str(candidate_job_match),
+                company_sources=str(company_sources),
+                interview_intel=str(interview_intel),
+                formatted_knowledge_context=format_knowledge_context_for_prompt(
+                    knowledge_context
+                ),
+                question_blueprint=json.dumps(question_blueprint, ensure_ascii=False),
+                previous_plan_critique=format_previous_plan_critique_for_prompt(
+                    previous_plan_critique
+                ),
+                validation_feedback=validation_feedback,
+                extra_variables=self.prompt_config.as_template_variables(),
+            )
+            extracted = await chain.ainvoke(prompt_inputs.as_template_variables())
+            plan = coerce_dataclass(InterviewPlan, extracted)
+            finalized_plan = InterviewPlan(
+                session_id=plan.session_id,
+                mode=plan.mode,
+                questions=self._apply_blueprint(
+                    questions=plan.questions,
+                    question_blueprint=question_blueprint,
+                ),
+                rubric=plan.rubric,
+                candidate_storyline=plan.candidate_storyline,
+                planned_deep_dives=plan.planned_deep_dives,
+                target_track=target_track,
+                revised=plan.revised,
+                revision_attempts_used=plan.revision_attempts_used,
+            )
+            try:
+                self._validate_plan_contract(finalized_plan)
+                return finalized_plan
+            except ValueError as error:
+                last_error_message = str(error)
+                validation_feedback = (
+                    "Previous attempt failed validation. "
+                    f"Attempt={attempt}. Error={last_error_message}. "
+                    "Regenerate the full plan and satisfy all strict counts and source_scope constraints."
+                )
+
+        raise ValueError(
+            "InterviewPlan validation failed after retries. "
+            f"Last error: {last_error_message}"
         )
-        extracted = await chain.ainvoke(prompt_inputs.as_template_variables())
-        plan = coerce_dataclass(InterviewPlan, extracted)
-        finalized_plan = InterviewPlan(
-            session_id=plan.session_id,
-            mode=plan.mode,
-            questions=plan.questions,
-            rubric=plan.rubric,
-            candidate_storyline=plan.candidate_storyline,
-            planned_deep_dives=plan.planned_deep_dives,
-            target_track=target_track,
-        )
-        self._validate_plan_contract(finalized_plan)
-        return finalized_plan
+
+    def _build_question_blueprint(self) -> list[dict]:
+        blueprint: list[dict] = []
+
+        for _ in range(self.prompt_config.project_deep_dive_count):
+            blueprint.append(
+                {
+                    "question_type": InterviewQuestionType.PROJECT_DEEP_DIVE.value,
+                    "allowed_source_scopes": [
+                        InterviewQuestionSourceScope.RESUME_WRITTEN.value,
+                        InterviewQuestionSourceScope.RESUME_UNWRITTEN.value,
+                    ],
+                }
+            )
+        for _ in range(self.prompt_config.tech_deep_dive_count):
+            blueprint.append(
+                {
+                    "question_type": InterviewQuestionType.TECH_DEEP_DIVE.value,
+                    "allowed_source_scopes": [
+                        InterviewQuestionSourceScope.TECH_STACK.value,
+                    ],
+                }
+            )
+        for _ in range(self.prompt_config.scenario_count):
+            blueprint.append(
+                {
+                    "question_type": InterviewQuestionType.SCENARIO.value,
+                    "allowed_source_scopes": [
+                        InterviewQuestionSourceScope.JD_SCENARIO.value,
+                        InterviewQuestionSourceScope.TECH_STACK.value,
+                        InterviewQuestionSourceScope.RESUME_WRITTEN.value,
+                        InterviewQuestionSourceScope.RESUME_UNWRITTEN.value,
+                        InterviewQuestionSourceScope.INTERVIEW_INTEL_WEB.value,
+                    ],
+                }
+            )
+        return blueprint
+
+    def _apply_blueprint(
+        self,
+        questions: list[InterviewQuestion],
+        question_blueprint: list[dict],
+    ) -> list[InterviewQuestion]:
+        aligned: list[InterviewQuestion] = []
+        for index, blueprint_slot in enumerate(question_blueprint):
+            if index >= len(questions):
+                break
+            question = questions[index]
+            slot_type = InterviewQuestionType(blueprint_slot["question_type"])
+            allowed_scope_values = blueprint_slot["allowed_source_scopes"]
+            allowed_scopes = [InterviewQuestionSourceScope(v) for v in allowed_scope_values]
+            source_scope = question.source_scope
+            if source_scope not in allowed_scopes:
+                source_scope = allowed_scopes[0]
+            aligned.append(
+                replace(
+                    question,
+                    question_type=slot_type,
+                    source_scope=source_scope,
+                )
+            )
+        return aligned
 
     def _validate_plan_contract(self, plan: InterviewPlan) -> None:
         expected_count = self.prompt_config.target_question_count

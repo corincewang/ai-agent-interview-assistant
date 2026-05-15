@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 from langgraph.graph import END, START, StateGraph
@@ -452,6 +453,7 @@ class LangGraphInterviewWorkflow:
         interview_plan = self._attach_planner_revision_metadata(
             interview_plan=interview_plan,
             planner_revision_attempts=state.planner_revision_attempts,
+            state=state,
         )
         return replace(state, interview_plan=interview_plan)
 
@@ -459,12 +461,51 @@ class LangGraphInterviewWorkflow:
         self,
         interview_plan: InterviewPlan,
         planner_revision_attempts: int,
+        state: InterviewGraphState,
     ) -> InterviewPlan:
+        updated_rubric = dict(interview_plan.rubric)
+        closure_event = {
+            "event_name": "resume_to_questions_closure",
+            "session_id": str(state.session_id),
+            "resume_document_count": len(
+                [
+                    d
+                    for d in state.parsed_documents
+                    if d.document_type == DocumentType.RESUME
+                ]
+            ),
+            "knowledge_base_document_count": len(
+                [
+                    d
+                    for d in state.parsed_documents
+                    if d.document_type == DocumentType.KNOWLEDGE_BASE
+                ]
+            ),
+            "candidate_skill_count": (
+                len(state.candidate_profile.technical_skills)
+                if state.candidate_profile is not None
+                else 0
+            ),
+            "retrieved_chunk_count": (
+                len(state.planning_knowledge_context.chunks)
+                if state.planning_knowledge_context is not None
+                else 0
+            ),
+            "question_count": len(interview_plan.questions),
+            "revised": planner_revision_attempts > 0,
+            "revision_attempts_used": planner_revision_attempts,
+            "target_track": state.target_track,
+        }
+        updated_rubric["observability_event.resume_to_questions_closure"] = json.dumps(
+            closure_event,
+            ensure_ascii=False,
+        )
+
         return InterviewPlan(
             session_id=interview_plan.session_id,
             mode=interview_plan.mode,
             questions=interview_plan.questions,
-            rubric=interview_plan.rubric,
+            rubric=updated_rubric,
             candidate_storyline=interview_plan.candidate_storyline,
             planned_deep_dives=interview_plan.planned_deep_dives,
             target_track=interview_plan.target_track,
