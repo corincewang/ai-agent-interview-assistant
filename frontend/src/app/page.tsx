@@ -20,7 +20,7 @@ import {
   submitAnswer,
   uploadDocument,
 } from "@/lib/api/client";
-import { InterviewMode, InterviewPlanView, InterviewQuestionView } from "@/lib/api/contracts";
+import { InterviewPlanView, InterviewQuestionView } from "@/lib/api/contracts";
 
 type Tab = "plan" | "interview" | "report";
 
@@ -31,8 +31,8 @@ export default function HomePage() {
   const [companyName, setCompanyName] = useState("Demo AI Company");
   const [roleTitle, setRoleTitle] = useState("AI Agent Software Engineer");
   const [jobDescription, setJobDescription] = useState(defaultJd);
-  const [mode, setMode] = useState<InterviewMode>("ai_agent");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [knowledgeFiles, setKnowledgeFiles] = useState<File[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [plan, setPlan] = useState<InterviewPlanView | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export default function HomePage() {
 
   async function runSetup() {
     if (!resumeFile) {
-      setError("Upload a resume PDF, TXT, or MD file before preparing.");
+      setError("请先上传简历文件（必填）。");
       return;
     }
 
@@ -77,13 +77,20 @@ export default function HomePage() {
       const session = await createInterviewSession({
         company_name: companyName,
         role_title: roleTitle,
-        job_description: jobDescription,
-        mode,
+        target_track: roleTitle,
+        jd_text: jobDescription,
       });
       setSessionId(session.session_id);
 
       setBusyLabel("Uploading resume");
       await uploadDocument(session.session_id, "resume", resumeFile);
+
+      if (knowledgeFiles.length > 0) {
+        setBusyLabel("Uploading knowledge files");
+      }
+      for (const file of knowledgeFiles) {
+        await uploadDocument(session.session_id, "knowledge_base", file);
+      }
 
       setBusyLabel("Preparing interview plan");
       const prepared = await prepareInterviewSession(session.session_id);
@@ -179,19 +186,6 @@ export default function HomePage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="mode">Mode</label>
-            <select
-              id="mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as InterviewMode)}
-            >
-              <option value="ai_agent">AI Agent</option>
-              <option value="frontend">Frontend</option>
-              <option value="backend">Backend</option>
-              <option value="general_swe">General SWE</option>
-            </select>
-          </div>
-          <div className="field">
             <label htmlFor="jd">Job Description</label>
             <textarea
               id="jd"
@@ -200,12 +194,31 @@ export default function HomePage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="resume">Resume</label>
+            <label htmlFor="resume">Resume（必填）</label>
             <input
               id="resume"
               type="file"
-              accept=".pdf,.txt,.md"
-              onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+              accept=".pdf,.txt,.md,.doc,.docx"
+              onChange={(event) => {
+                setResumeFile(event.target.files?.[0] ?? null);
+              }}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="knowledgeFiles">Knowledge Files（可选，可多选）</label>
+            <input
+              id="knowledgeFiles"
+              type="file"
+              accept=".pdf,.txt,.md,.doc,.docx"
+              multiple
+              onChange={(event) => {
+                const files = event.target.files;
+                if (!files) {
+                  setKnowledgeFiles([]);
+                  return;
+                }
+                setKnowledgeFiles(Array.from(files));
+              }}
             />
           </div>
           {error ? <div className="error">{error}</div> : null}

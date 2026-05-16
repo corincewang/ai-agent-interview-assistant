@@ -10,15 +10,16 @@ export type InterviewMode = "frontend" | "backend" | "ai_agent" | "general_swe";
 export interface CreateInterviewSessionRequest {
   company_name: string;
   role_title: string;
-  job_description: string;
-  mode: InterviewMode;
+  target_track: string;
+  jd_text: string;
+  mode?: InterviewMode;
 }
 
 export interface CreateInterviewSessionResponse {
   session_id: string;
   company_name: string;
   role_title: string;
-  mode: InterviewMode;
+  target_track: string;
 }
 
 export interface UploadDocumentRequest {
