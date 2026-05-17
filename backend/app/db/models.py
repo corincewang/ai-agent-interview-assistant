@@ -96,6 +96,31 @@ class DocumentChunkRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     document: Mapped[DocumentRecord] = relationship(back_populates="chunks")
 
 
+class LongTermMemoryRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "long_term_memories"
+
+    namespace_scope: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    namespace_path: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    namespace_key: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    memory_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    source_session_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        index=True,
+    )
+    source_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        index=True,
+    )
+    quality_score: Mapped[float | None] = mapped_column(Float)
+
+
 class InterviewPlanRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "interview_plans"
 

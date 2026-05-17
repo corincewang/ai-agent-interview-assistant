@@ -61,6 +61,7 @@ class InterviewPlanningPromptInputs:
     company_sources: str
     interview_intel: str
     formatted_knowledge_context: str
+    formatted_reusable_question_memories: str
     question_blueprint: str
     previous_plan_critique: str
     validation_feedback: str
@@ -76,6 +77,9 @@ class InterviewPlanningPromptInputs:
             "company_sources": self.company_sources,
             "interview_intel": self.interview_intel,
             "formatted_knowledge_context": self.formatted_knowledge_context,
+            "formatted_reusable_question_memories": (
+                self.formatted_reusable_question_memories
+            ),
             "question_blueprint": self.question_blueprint,
             "previous_plan_critique": self.previous_plan_critique,
             "validation_feedback": self.validation_feedback,
@@ -114,6 +118,7 @@ The plan must contain exactly {target_question_count} questions and must be tail
 - candidate-job match and risk areas,
 - company/interview intel when available,
 - retrieved knowledge-base context when available.
+- reusable long-term question memories when available.
 
 Required question mix themes:
 {question_mix}
@@ -136,6 +141,7 @@ Question quality contract:
 - At least {min_resume_grounded_questions} questions must be grounded in concrete resume/project evidence.
 - At least {min_jd_grounded_questions} questions must test concrete JD requirements or responsibilities.
 - If retrieved knowledge-base context is available, at least {min_knowledge_grounded_questions} questions must target topics from retrieved chunks.
+- If reusable long-term question memories are available, use them as prior examples for role-specific coverage and avoid blindly copying stale or duplicate questions.
 - Each question must set source_scope to one of: resume_written, resume_unwritten, tech_stack, jd_scenario.
 - Every question must test a concrete signal, not just ask for definitions.
 - Every question must include expected_signals that describe what a strong answer should demonstrate.
@@ -196,6 +202,9 @@ Interview intel:
 
 Retrieved knowledge-base context:
 {formatted_knowledge_context}
+
+Reusable long-term question memories:
+{formatted_reusable_question_memories}
 
 Question blueprint (hard slot contract):
 {question_blueprint}

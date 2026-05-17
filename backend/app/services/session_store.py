@@ -7,6 +7,7 @@ from app.domain.models import (
     InterviewMode,
     InterviewPlan,
     InterviewTurn,
+    ShortTermMemoryRef,
 )
 
 
@@ -19,6 +20,7 @@ class InterviewSessionRecord:
     target_track: str
     jd_text: str
     mode: InterviewMode
+    short_term_memory: ShortTermMemoryRef
     document_inputs: list[DocumentInput] = field(default_factory=list)
     prepared_state: dict | None = None
     interview_plan: InterviewPlan | None = None
@@ -39,14 +41,19 @@ class InMemoryInterviewSessionStore:
         jd_text: str,
         mode: InterviewMode,
     ) -> InterviewSessionRecord:
+        session_id = uuid4()
         session = InterviewSessionRecord(
-            session_id=uuid4(),
+            session_id=session_id,
             user_id=uuid4(),
             company_name=company_name,
             role_title=role_title,
             target_track=target_track,
             jd_text=jd_text,
             mode=mode,
+            short_term_memory=ShortTermMemoryRef(
+                session_id=session_id,
+                thread_id=str(session_id),
+            ),
         )
         self._sessions[session.session_id] = session
         return session

@@ -12,6 +12,7 @@ from app.domain.models import (
     InterviewTurn,
     JobAnalysis,
     KnowledgeRetrievalResult,
+    MemoryRecord,
     ParsedDocument,
     ResearchFinding,
     ResumeProfile,
@@ -104,6 +105,7 @@ class InterviewPlanningSkill(Protocol):
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        reusable_question_memories: list[MemoryRecord] | None = None,
         previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> InterviewPlan:
         ...

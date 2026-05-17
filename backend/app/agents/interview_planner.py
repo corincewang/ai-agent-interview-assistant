@@ -7,6 +7,7 @@ from app.domain.models import (
     InterviewPlanCritique,
     JobAnalysis,
     KnowledgeRetrievalResult,
+    MemoryRecord,
     ResearchFinding,
 )
 from app.skills.contracts import InterviewPlanningSkill
@@ -24,6 +25,7 @@ class InterviewPlannerAgent:
         interview_intel: list[ResearchFinding],
         interview_planning_skill: InterviewPlanningSkill,
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        reusable_question_memories: list[MemoryRecord] | None = None,
         previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> None:
         self.session_id = session_id
@@ -35,6 +37,7 @@ class InterviewPlannerAgent:
         self.interview_intel = interview_intel
         self.interview_planning_skill = interview_planning_skill
         self.knowledge_context = knowledge_context
+        self.reusable_question_memories = reusable_question_memories or []
         self.previous_plan_critique = previous_plan_critique
 
     async def run(self) -> InterviewPlan:
@@ -47,5 +50,6 @@ class InterviewPlannerAgent:
             company_sources=self.company_sources,
             interview_intel=self.interview_intel,
             knowledge_context=self.knowledge_context,
+            reusable_question_memories=self.reusable_question_memories,
             previous_plan_critique=self.previous_plan_critique,
         )

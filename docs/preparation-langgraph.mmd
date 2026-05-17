@@ -1,0 +1,37 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	ingest_documents(ingest_documents)
+	index_knowledge_base(index_knowledge_base)
+	extract_resume_profile(extract_resume_profile)
+	profile_candidate(profile_candidate)
+	analyze_jd(analyze_jd)
+	match_candidate_to_job(match_candidate_to_job)
+	research_company(research_company)
+	collect_interview_intel(collect_interview_intel)
+	retrieve_planning_context(retrieve_planning_context)
+	plan_interview(plan_interview)
+	critique_interview_plan(critique_interview_plan)
+	prepare_planner_revision(prepare_planner_revision)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> ingest_documents;
+	analyze_jd --> match_candidate_to_job;
+	collect_interview_intel --> retrieve_planning_context;
+	critique_interview_plan -. &nbsp;finish&nbsp; .-> __end__;
+	critique_interview_plan -. &nbsp;revise&nbsp; .-> prepare_planner_revision;
+	extract_resume_profile --> profile_candidate;
+	index_knowledge_base --> extract_resume_profile;
+	ingest_documents --> index_knowledge_base;
+	match_candidate_to_job --> research_company;
+	plan_interview --> critique_interview_plan;
+	prepare_planner_revision --> plan_interview;
+	profile_candidate --> analyze_jd;
+	research_company --> collect_interview_intel;
+	retrieve_planning_context --> plan_interview;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

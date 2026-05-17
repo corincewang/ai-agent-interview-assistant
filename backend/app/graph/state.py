@@ -12,6 +12,7 @@ from app.domain.models import (
     JobAnalysis,
     KnowledgeIndexingResult,
     KnowledgeRetrievalResult,
+    MemoryRecord,
     ParsedDocument,
     ResearchFinding,
     ResumeProfile,
@@ -37,6 +38,7 @@ class InterviewGraphState:
     candidate_job_match: CandidateJobMatch | None = None
     company_sources: list[ResearchFinding] = field(default_factory=list)
     interview_intel: list[ResearchFinding] = field(default_factory=list)
+    reusable_question_memories: list[MemoryRecord] = field(default_factory=list)
     interview_plan: InterviewPlan | None = None
     interview_plan_critique: InterviewPlanCritique | None = None
     planner_revision_attempts: int = 0

@@ -20,6 +20,7 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "langchain-text-splitters>=0.3.0",
     "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
     "pgvector>=0.3.0",
     # PyArrow wheels must match NumPy major line; pin so NumPy 2.x does not pair with old PyArrow built for NumPy 1.x.
     "pyarrow>=17.0.0",

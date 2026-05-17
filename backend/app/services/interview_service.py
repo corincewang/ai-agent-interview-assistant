@@ -15,13 +15,21 @@ from app.domain.models import (
     InterviewQuestion,
     InterviewTurn,
     InterviewTurnRole,
+    MemoryKind,
 )
 from app.graph.langgraph_workflow import LangGraphInterviewWorkflow
 from app.graph.state import InterviewGraphState
+from app.ports.memory import LongTermMemoryRepository
 from app.ports.tools import VectorStore
 from app.providers.embeddings import OpenAIEmbeddingProvider
 from app.providers.llm import build_chat_model
+from app.services.long_term_memory_store import LongTermMemoryStore
+from app.services.memory_service import MemoryNamespaceFactory, build_memory_record
 from app.services.postgres_persistence import OptionalPostgresPersistence
+from app.services.short_term_memory import (
+    build_short_term_memory_config,
+    postgres_short_term_checkpointer,
+)
 from app.services.session_store import InterviewSessionRecord, InMemoryInterviewSessionStore
 from app.skills.candidate_job_matching import LLMCandidateJobMatchingSkill
 from app.skills.candidate_profiling import LLMCandidateProfilingSkill
@@ -51,10 +59,19 @@ class InterviewService:
         store: InMemoryInterviewSessionStore,
         *,
         shared_faiss_vector_store: FaissVectorStore | None = None,
+        long_term_memory_repository: LongTermMemoryRepository | None = None,
+        memory_namespace_factory: MemoryNamespaceFactory | None = None,
     ) -> None:
+        settings = load_settings()
         self.store = store
-        self.persistence = OptionalPostgresPersistence(load_settings())
+        self.persistence = OptionalPostgresPersistence(settings)
         self._shared_faiss_vector_store = shared_faiss_vector_store
+        self.long_term_memory_repository = (
+            long_term_memory_repository or LongTermMemoryStore(settings)
+        )
+        self.memory_namespace_factory = (
+            memory_namespace_factory or MemoryNamespaceFactory()
+        )
 
     async def create_session(
         self,
@@ -159,6 +176,11 @@ class InterviewService:
         session.prepared_state = prepared_state
         session.interview_plan = interview_plan
         await self.persistence.persist_prepared_session(session)
+        await self._save_interview_plan_to_long_term_memory(
+            session=session,
+            interview_plan=interview_plan,
+            prepared_state=prepared_state,
+        )
         return interview_plan
 
     async def _run_preparation_workflow(
@@ -217,6 +239,9 @@ class InterviewService:
             target_track=session.target_track,
             jd_text=session.jd_text,
             document_inputs=session.document_inputs,
+            reusable_question_memories=await self._load_reusable_question_memories(
+                session
+            ),
         )
         runnable = workflow.build_preparation_graph()
         if not settings.langsmith_tracing:
@@ -298,6 +323,7 @@ class InterviewService:
             candidate_answer=answer,
         )
         await self.persistence.persist_transcript(session)
+        await self._checkpoint_live_interview_state(session)
         return follow_up
 
     async def evaluate_session(self, session_id: UUID) -> list[AnswerEvaluation]:
@@ -373,6 +399,102 @@ class InterviewService:
             for turn in session.transcript
         )
 
+    async def _save_interview_plan_to_long_term_memory(
+        self,
+        session: InterviewSessionRecord,
+        interview_plan: InterviewPlan,
+        prepared_state,
+    ) -> None:
+        namespace = self.memory_namespace_factory.shared_question_bank(
+            target_track=session.target_track,
+            company_name=session.company_name,
+            role_title=session.role_title,
+            jd_text=session.jd_text,
+        )
+        quality_scores = _question_quality_scores(prepared_state)
+        memories = [
+            build_memory_record(
+                namespace=namespace,
+                kind=MemoryKind.QUESTION_BANK,
+                content={
+                    "question_id": str(question.id),
+                    "prompt": question.prompt,
+                    "topic": question.topic,
+                    "difficulty": question.difficulty,
+                    "expected_signals": question.expected_signals,
+                    "follow_up_strategy": question.follow_up_strategy,
+                    "why_asked": question.why_asked,
+                },
+                metadata={
+                    "company_name": session.company_name,
+                    "role_title": session.role_title,
+                    "target_track": session.target_track,
+                    "question_type": (
+                        question.question_type.value
+                        if question.question_type is not None
+                        else None
+                    ),
+                    "source_scope": (
+                        question.source_scope.value
+                        if question.source_scope is not None
+                        else None
+                    ),
+                    "revised": interview_plan.revised,
+                    "revision_attempts_used": interview_plan.revision_attempts_used,
+                },
+                source_session_id=session.session_id,
+                source_user_id=session.user_id,
+                quality_score=quality_scores.get(question.id),
+            )
+            for question in interview_plan.questions
+        ]
+        await self.long_term_memory_repository.save_memories(memories)
+
+    async def _load_reusable_question_memories(
+        self,
+        session: InterviewSessionRecord,
+    ):
+        namespace = self.memory_namespace_factory.shared_question_bank(
+            target_track=session.target_track,
+            company_name=session.company_name,
+            role_title=session.role_title,
+            jd_text=session.jd_text,
+        )
+        return await self.long_term_memory_repository.list_memories(
+            namespace=namespace,
+            kind=MemoryKind.QUESTION_BANK,
+            limit=8,
+        )
+
+    async def _checkpoint_live_interview_state(
+        self,
+        session: InterviewSessionRecord,
+    ) -> None:
+        state = InterviewGraphState(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            company_name=session.company_name,
+            role_title=session.role_title,
+            target_track=session.target_track,
+            jd_text=session.jd_text,
+            document_inputs=session.document_inputs,
+            interview_plan=session.interview_plan,
+            transcript=session.transcript,
+        )
+        workflow = LangGraphInterviewWorkflow()
+        settings = load_settings()
+        if settings.database_url is None:
+            raise ValueError("DATABASE_URL is required for short-term memory")
+
+        async with postgres_short_term_checkpointer(
+            settings.database_url,
+        ) as checkpointer:
+            graph = workflow.build_live_interview_graph(checkpointer=checkpointer)
+            await graph.ainvoke(
+                state,
+                config=build_short_term_memory_config(session),
+            )
+
 
 def _iter_document_paths(root_path: Path, suffixes: set[str]) -> list[Path]:
     normalized_suffixes = {suffix.lower() for suffix in suffixes}
@@ -385,3 +507,14 @@ def _iter_document_paths(root_path: Path, suffixes: set[str]) -> list[Path]:
         for path in root_path.rglob("*")
         if path.is_file() and path.suffix.lower() in normalized_suffixes
     )
+
+
+def _question_quality_scores(prepared_state) -> dict[UUID, float]:
+    critique = prepared_state.get("interview_plan_critique")
+    if critique is None:
+        return {}
+
+    return {
+        question_critique.question_id: question_critique.overall_score
+        for question_critique in critique.question_critiques
+    }

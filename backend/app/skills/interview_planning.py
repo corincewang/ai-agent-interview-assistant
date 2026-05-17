@@ -14,6 +14,7 @@ from app.domain.models import (
     InterviewQuestionType,
     JobAnalysis,
     KnowledgeRetrievalResult,
+    MemoryRecord,
     ResearchFinding,
 )
 from app.prompts.interview_planning import (
@@ -44,6 +45,7 @@ class LLMInterviewPlanningSkill:
         company_sources: list[ResearchFinding],
         interview_intel: list[ResearchFinding],
         knowledge_context: KnowledgeRetrievalResult | None = None,
+        reusable_question_memories: list[MemoryRecord] | None = None,
         previous_plan_critique: InterviewPlanCritique | None = None,
     ) -> InterviewPlan:
         structured_llm = self.llm.with_structured_output(InterviewPlan)
@@ -63,6 +65,11 @@ class LLMInterviewPlanningSkill:
                 interview_intel=str(interview_intel),
                 formatted_knowledge_context=format_knowledge_context_for_prompt(
                     knowledge_context
+                ),
+                formatted_reusable_question_memories=(
+                    format_reusable_question_memories_for_prompt(
+                        reusable_question_memories or []
+                    )
                 ),
                 question_blueprint=json.dumps(question_blueprint, ensure_ascii=False),
                 previous_plan_critique=format_previous_plan_critique_for_prompt(
@@ -266,6 +273,38 @@ def format_knowledge_context_for_prompt(
 
     if knowledge_context.warnings:
         lines.append(f"Warnings: {knowledge_context.warnings}")
+
+    return "\n\n".join(lines)
+
+
+def format_reusable_question_memories_for_prompt(
+    memories: list[MemoryRecord],
+) -> str:
+    if not memories:
+        return "No reusable long-term question memories."
+
+    lines: list[str] = []
+    for index, memory in enumerate(memories[:8], start=1):
+        prompt = str(memory.content.get("prompt", "")).strip()
+        if not prompt:
+            continue
+
+        metadata = memory.metadata
+        lines.append(
+            "\n".join(
+                [
+                    f"[Memory {index}]",
+                    f"quality_score={memory.quality_score}",
+                    f"question_type={metadata.get('question_type')}",
+                    f"source_scope={metadata.get('source_scope')}",
+                    f"topic={memory.content.get('topic')}",
+                    f"prompt={prompt}",
+                ]
+            )
+        )
+
+    if not lines:
+        return "No reusable long-term question memories with prompt content."
 
     return "\n\n".join(lines)
 

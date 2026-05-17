@@ -447,6 +447,7 @@ class LangGraphInterviewWorkflow:
             interview_intel=state.interview_intel,
             interview_planning_skill=self.interview_planning_skill,
             knowledge_context=state.planning_knowledge_context,
+            reusable_question_memories=state.reusable_question_memories,
             previous_plan_critique=state.interview_plan_critique,
         )
         interview_plan = await agent.run()
@@ -491,6 +492,7 @@ class LangGraphInterviewWorkflow:
                 if state.planning_knowledge_context is not None
                 else 0
             ),
+            "reusable_question_memory_count": len(state.reusable_question_memories),
             "question_count": len(interview_plan.questions),
             "revised": planner_revision_attempts > 0,
             "revision_attempts_used": planner_revision_attempts,
@@ -598,7 +600,7 @@ class LangGraphInterviewWorkflow:
 
         return graph.compile()
 
-    def build_live_interview_graph(self):
+    def build_live_interview_graph(self, checkpointer=None):
         graph = StateGraph(InterviewGraphState)
 
         graph.add_node("run_live_turn", self.run_live_turn)
@@ -610,4 +612,4 @@ class LangGraphInterviewWorkflow:
         graph.add_edge("evaluate_session", "generate_report")
         graph.add_edge("generate_report", END)
 
-        return graph.compile()
+        return graph.compile(checkpointer=checkpointer)

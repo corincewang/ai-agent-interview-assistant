@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
@@ -38,6 +39,21 @@ class InterviewTurnRole(str, Enum):
     INTERVIEWER = "interviewer"
     CANDIDATE = "candidate"
     SYSTEM = "system"
+
+
+class MemoryScope(str, Enum):
+    SHARED = "shared"
+    USER = "user"
+    SESSION = "session"
+
+
+class MemoryKind(str, Enum):
+    ROLE_INTEL = "role_intel"
+    QUESTION_BANK = "question_bank"
+    USER_PROFILE = "user_profile"
+    SESSION_SUMMARY = "session_summary"
+    GENERATED_QUESTION = "generated_question"
+    CRITIQUE_SIGNAL = "critique_signal"
 
 
 @dataclass(frozen=True)
@@ -132,6 +148,36 @@ class KnowledgeRetrievalResult:
     query: str
     chunks: list[RetrievedKnowledgeChunk]
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class ShortTermMemoryRef:
+    session_id: UUID
+    thread_id: str
+
+
+@dataclass(frozen=True)
+class MemoryNamespace:
+    scope: MemoryScope
+    path: tuple[str, ...]
+
+    @property
+    def key(self) -> str:
+        return "/".join([self.scope.value, *self.path])
+
+
+@dataclass(frozen=True)
+class MemoryRecord:
+    id: UUID
+    namespace: MemoryNamespace
+    kind: MemoryKind
+    content: dict[str, Any]
+    metadata: dict[str, Any] = field(default_factory=dict)
+    embedding: list[float] | None = None
+    source_session_id: UUID | None = None
+    source_user_id: UUID | None = None
+    quality_score: float | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)
