@@ -3,6 +3,7 @@ import {
   CreateInterviewSessionResponse,
   DocumentType,
   PrepareSessionResponse,
+  PrepareStreamEvent,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
 } from "./contracts";
@@ -76,6 +77,44 @@ export async function prepareInterviewSession(
   );
 }
 
+export async function prepareInterviewSessionStream(
+  sessionId: string,
+  onEvent: (event: PrepareStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/interview-sessions/${sessionId}/prepare/stream`,
+    { method: "POST" },
+  );
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text();
+    throw new Error(detail || `Prepare stream failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const part of parts) {
+      const event = parseSseEvent(part);
+      if (event) onEvent(event);
+    }
+  }
+
+  if (buffer.trim()) {
+    const event = parseSseEvent(buffer);
+    if (event) onEvent(event);
+  }
+}
+
 export async function submitAnswer(
   sessionId: string,
   payload: SubmitAnswerRequest,
@@ -87,6 +126,26 @@ export async function submitAnswer(
       body: JSON.stringify(payload),
     },
   );
+}
+
+function parseSseEvent(raw: string): PrepareStreamEvent | null {
+  let eventName = "message";
+  const dataLines: string[] = [];
+
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) {
+      eventName = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
+  return { event: eventName, ...payload } as PrepareStreamEvent;
 }
 
 export async function evaluateSession(sessionId: string): Promise<void> {

@@ -16,7 +16,7 @@ import {
   createInterviewSession,
   evaluateSession,
   generateReport,
-  prepareInterviewSession,
+  prepareInterviewSessionStream,
   submitAnswer,
   uploadDocument,
 } from "@/lib/api/client";
@@ -36,7 +36,8 @@ export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [plan, setPlan] = useState<InterviewPlanView | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
-  const [answer, setAnswer] = useState("");
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  const [submittedAnswers, setSubmittedAnswers] = useState<Record<string, string>>({});
   const [followUp, setFollowUp] = useState<InterviewQuestionView | null>(null);
   const [report, setReport] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("plan");
@@ -93,10 +94,56 @@ export default function HomePage() {
       }
 
       setBusyLabel("Preparing interview plan");
-      const prepared = await prepareInterviewSession(session.session_id);
-      setPlan(prepared.interview_plan);
-      setSelectedQuestionId(prepared.interview_plan.questions[0]?.id ?? null);
-      setActiveTab("plan");
+      setActiveTab("interview");
+      setPlan(null);
+      setSelectedQuestionId(null);
+      setAnswerDrafts({});
+      setSubmittedAnswers({});
+      setFollowUp(null);
+
+      await prepareInterviewSessionStream(session.session_id, (event) => {
+        if (event.event === "progress") {
+          setBusyLabel(event.message);
+          return;
+        }
+
+        if (event.event === "plan") {
+          setBusyLabel("Streaming interview questions");
+          setPlan({
+            session_id: event.session_id,
+            mode: "general_swe",
+            questions: [],
+            rubric: {},
+            candidate_storyline: event.candidate_storyline,
+            planned_deep_dives: event.planned_deep_dives,
+          });
+          return;
+        }
+
+        if (event.event === "question") {
+          setPlan((currentPlan) => {
+            if (!currentPlan) return currentPlan;
+            return {
+              ...currentPlan,
+              questions: [...currentPlan.questions, event.question],
+            };
+          });
+          setSelectedQuestionId((current) => current ?? event.question.id);
+          return;
+        }
+
+        if (event.event === "complete") {
+          setPlan(event.interview_plan);
+          setSelectedQuestionId(
+            (current) => current ?? event.interview_plan.questions[0]?.id ?? null,
+          );
+          return;
+        }
+
+        if (event.event === "error") {
+          throw new Error(event.message);
+        }
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Setup failed");
     } finally {
@@ -106,6 +153,7 @@ export default function HomePage() {
 
   async function submitCurrentAnswer() {
     if (!sessionId || !selectedQuestion) return;
+    const currentAnswer = answerDrafts[selectedQuestion.id] ?? "";
 
     setError(null);
     setBusyLabel("Submitting answer");
@@ -113,8 +161,12 @@ export default function HomePage() {
     try {
       const result = await submitAnswer(sessionId, {
         question_id: selectedQuestion.id,
-        answer,
+        answer: currentAnswer,
       });
+      setSubmittedAnswers((current) => ({
+        ...current,
+        [selectedQuestion.id]: currentAnswer,
+      }));
       setFollowUp(result.follow_up_question);
       setActiveTab("interview");
     } catch (caught) {
@@ -269,10 +321,16 @@ export default function HomePage() {
 
             {activeTab === "interview" ? (
               <InterviewView
+                questions={plan?.questions ?? []}
                 selectedQuestion={selectedQuestion}
-                answer={answer}
+                selectedQuestionId={selectedQuestionId}
+                answerDrafts={answerDrafts}
+                submittedAnswers={submittedAnswers}
                 followUp={followUp}
-                onAnswerChange={setAnswer}
+                onSelectQuestion={setSelectedQuestionId}
+                onAnswerChange={(questionId, value) => {
+                  setAnswerDrafts((current) => ({ ...current, [questionId]: value }));
+                }}
                 onSubmit={submitCurrentAnswer}
                 onReport={generateFeedbackReport}
                 busy={Boolean(busyLabel)}
@@ -344,59 +402,114 @@ function PlanView({
 }
 
 function InterviewView({
+  questions,
   selectedQuestion,
-  answer,
+  selectedQuestionId,
+  answerDrafts,
+  submittedAnswers,
   followUp,
+  onSelectQuestion,
   onAnswerChange,
   onSubmit,
   onReport,
   busy,
 }: {
+  questions: InterviewQuestionView[];
   selectedQuestion: InterviewQuestionView | null;
-  answer: string;
+  selectedQuestionId: string | null;
+  answerDrafts: Record<string, string>;
+  submittedAnswers: Record<string, string>;
   followUp: InterviewQuestionView | null;
-  onAnswerChange: (value: string) => void;
+  onSelectQuestion: (questionId: string) => void;
+  onAnswerChange: (questionId: string, value: string) => void;
   onSubmit: () => void;
   onReport: () => void;
   busy: boolean;
 }) {
-  if (!selectedQuestion) {
-    return <div className="notice">Select or prepare a question to begin.</div>;
-  }
+  const currentAnswer = selectedQuestion ? answerDrafts[selectedQuestion.id] ?? "" : "";
 
   return (
-    <div className="section">
-      <h2>Current Question</h2>
-      <div className="question-item question-item-active">
-        <div className="question-meta">
-          <span className="chip">{selectedQuestion.topic}</span>
-          <span className="chip">{selectedQuestion.difficulty}</span>
+    <div className="interview-chat-shell">
+      <div className="chat-column interviewer-column">
+        <div className="chat-column-header">
+          <h2>Interviewer</h2>
+          <span className="muted">{questions.length}/12 questions</span>
         </div>
-        <p>{selectedQuestion.prompt}</p>
+        {questions.length === 0 ? (
+          <div className="notice">Questions will appear here as the graph finishes planning.</div>
+        ) : (
+          <div className="chat-thread">
+            {questions.map((question, index) => (
+              <button
+                className={`chat-bubble interviewer-bubble ${
+                  question.id === selectedQuestionId ? "chat-bubble-active" : ""
+                }`}
+                key={question.id}
+                onClick={() => onSelectQuestion(question.id)}
+              >
+                <div className="question-meta">
+                  <span className="chip">Q{index + 1}</span>
+                  <span className="chip">{question.topic}</span>
+                  <span className="chip">{question.difficulty}</span>
+                </div>
+                <p>{question.prompt}</p>
+              </button>
+            ))}
+            {followUp ? (
+              <div className="chat-bubble interviewer-bubble">
+                <div className="question-meta">
+                  <span className="chip">Follow-up</span>
+                  <span className="chip">{followUp.topic}</span>
+                </div>
+                <p>{followUp.prompt}</p>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
-      <div className="field">
-        <label htmlFor="answer">Your Answer</label>
-        <textarea
-          id="answer"
-          className="answer-box"
-          value={answer}
-          onChange={(event) => onAnswerChange(event.target.value)}
-        />
-      </div>
-      {followUp ? (
-        <div className="notice">
-          <strong>Follow-up:</strong> {followUp.prompt}
+
+      <div className="chat-column candidate-column">
+        <div className="chat-column-header">
+          <h2>Candidate</h2>
+          <span className="muted">Text answer MVP</span>
         </div>
-      ) : null}
-      <div className="button-row">
-        <button className="btn btn-primary" onClick={onSubmit} disabled={busy || !answer.trim()}>
-          <Send size={16} />
-          Submit Answer
-        </button>
-        <button className="btn btn-secondary" onClick={onReport} disabled={busy}>
-          <CheckCircle2 size={16} />
-          Generate Report
-        </button>
+        {!selectedQuestion ? (
+          <div className="notice">Select or wait for a question to answer.</div>
+        ) : (
+          <>
+            {submittedAnswers[selectedQuestion.id] ? (
+              <div className="chat-bubble candidate-bubble">
+                <div className="question-meta">
+                  <span className="chip">Submitted</span>
+                </div>
+                <p>{submittedAnswers[selectedQuestion.id]}</p>
+              </div>
+            ) : null}
+            <div className="field">
+              <label htmlFor="answer">Answer for selected question</label>
+              <textarea
+                id="answer"
+                className="answer-box"
+                value={currentAnswer}
+                onChange={(event) => onAnswerChange(selectedQuestion.id, event.target.value)}
+              />
+            </div>
+            <div className="button-row">
+              <button
+                className="btn btn-primary"
+                onClick={onSubmit}
+                disabled={busy || !currentAnswer.trim()}
+              >
+                <Send size={16} />
+                Submit Answer
+              </button>
+              <button className="btn btn-secondary" onClick={onReport} disabled={busy}>
+                <CheckCircle2 size={16} />
+                Generate Report
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -59,6 +59,37 @@ export interface PrepareSessionResponse {
   interview_plan: InterviewPlanView;
 }
 
+export type PrepareStreamEvent =
+  | {
+      event: "progress";
+      message: string;
+      session_id: string;
+    }
+  | {
+      event: "plan";
+      session_id: string;
+      candidate_storyline: string;
+      planned_deep_dives: string[];
+      revised: boolean;
+      revision_attempts_used: number;
+      interview_plan_critique: Record<string, unknown> | null;
+    }
+  | {
+      event: "question";
+      index: number;
+      question: InterviewQuestionView;
+    }
+  | {
+      event: "complete";
+      session_id: string;
+      interview_plan: InterviewPlanView;
+    }
+  | {
+      event: "error";
+      message: string;
+      status_code?: number;
+    };
+
 export interface InterviewPlanView {
   session_id: string;
   mode: InterviewMode;

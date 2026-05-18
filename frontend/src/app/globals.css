@@ -303,6 +303,73 @@ button {
   min-height: 180px;
 }
 
+.interview-chat-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  min-height: 620px;
+}
+
+.chat-column {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+}
+
+.chat-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-column-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.chat-thread {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  max-height: 620px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chat-bubble {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.48;
+}
+
+.chat-bubble p {
+  margin: 0;
+}
+
+.interviewer-bubble {
+  background: #f8fbff;
+  cursor: pointer;
+}
+
+.candidate-bubble {
+  background: #f3fbf8;
+  border-color: #b9e6d3;
+}
+
+.chat-bubble-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(25, 88, 216, 0.1);
+}
+
+.candidate-column .field {
+  margin-bottom: 0;
+}
+
 .report-box {
   white-space: pre-wrap;
   border: 1px solid var(--border);
@@ -332,7 +399,8 @@ button {
 
 @media (max-width: 980px) {
   .workspace,
-  .grid-two {
+  .grid-two,
+  .interview-chat-shell {
     grid-template-columns: 1fr;
   }
 }
