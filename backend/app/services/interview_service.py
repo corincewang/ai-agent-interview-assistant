@@ -1,3 +1,5 @@
+import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from uuid import UUID
 
@@ -126,6 +128,73 @@ class InterviewService:
         return document_inputs
 
     async def prepare_session(self, session_id: UUID) -> InterviewPlan:
+        return await self._prepare_session(
+            session_id=session_id,
+            question_generated_callback=None,
+        )
+
+    async def prepare_session_events(
+        self,
+        session_id: UUID,
+    ) -> AsyncIterator[dict]:
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def on_question_generated(
+            question: InterviewQuestion,
+            index: int,
+        ) -> None:
+            await queue.put(
+                {
+                    "event": "question",
+                    "index": index,
+                    "question": to_jsonable(question),
+                }
+            )
+
+        task = asyncio.create_task(
+            self._prepare_session(
+                session_id=session_id,
+                question_generated_callback=on_question_generated,
+            )
+        )
+        yield {
+            "event": "progress",
+            "message": "Running LangGraph preparation workflow",
+            "session_id": str(session_id),
+        }
+
+        while not task.done() or not queue.empty():
+            try:
+                yield await asyncio.wait_for(queue.get(), timeout=0.5)
+            except TimeoutError:
+                continue
+
+        interview_plan = await task
+        session = self.store.require_session(session_id)
+        critique = None
+        if session.prepared_state is not None:
+            critique = session.prepared_state.get("interview_plan_critique")
+
+        yield {
+            "event": "plan",
+            "session_id": str(session_id),
+            "candidate_storyline": interview_plan.candidate_storyline,
+            "planned_deep_dives": interview_plan.planned_deep_dives,
+            "revised": interview_plan.revised,
+            "revision_attempts_used": interview_plan.revision_attempts_used,
+            "interview_plan_critique": to_jsonable(critique),
+        }
+        yield {
+            "event": "complete",
+            "session_id": str(session_id),
+            "interview_plan": to_jsonable(interview_plan),
+        }
+
+    async def _prepare_session(
+        self,
+        session_id: UUID,
+        question_generated_callback,
+    ) -> InterviewPlan:
         session = self.store.require_session(session_id)
         settings = load_settings()
         llm = build_chat_model(settings)
@@ -147,6 +216,7 @@ class InterviewService:
                         llm=llm,
                         chunking_tool=chunking_tool,
                         vector_store=vector_store,
+                        question_generated_callback=question_generated_callback,
                     )
             finally:
                 await engine.dispose()
@@ -160,6 +230,7 @@ class InterviewService:
                 llm=llm,
                 chunking_tool=chunking_tool,
                 vector_store=faiss_store,
+                question_generated_callback=question_generated_callback,
             )
         else:
             prepared_state = await self._run_preparation_workflow(
@@ -167,6 +238,7 @@ class InterviewService:
                 llm=llm,
                 chunking_tool=chunking_tool,
                 vector_store=InMemoryVectorStore(),
+                question_generated_callback=question_generated_callback,
             )
 
         interview_plan = prepared_state["interview_plan"]
@@ -189,6 +261,7 @@ class InterviewService:
         llm,
         chunking_tool: RecursiveTextChunkingTool,
         vector_store: VectorStore,
+        question_generated_callback,
     ) -> InterviewGraphState:
         settings = load_settings()
         if settings.openai_api_key is None:
@@ -217,7 +290,10 @@ class InterviewService:
                 web_search_tool=mock_web_search_tool,
                 page_fetch_tool=mock_page_fetch_tool,
             ),
-            interview_planning_skill=LLMInterviewPlanningSkill(llm),
+            interview_planning_skill=LLMInterviewPlanningSkill(
+                llm,
+                question_generated_callback=question_generated_callback,
+            ),
             interview_plan_critic_skill=LLMInterviewPlanCriticSkill(llm),
             knowledge_base_indexer=WindowedKnowledgeBaseIndexer(
                 document_parser=document_parsing_tool,

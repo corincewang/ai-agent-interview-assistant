@@ -552,6 +552,28 @@ class LangGraphInterviewWorkflow:
             return "finish"
         return "revise"
 
+    async def prepare_candidate_branch(self, state: InterviewGraphState) -> dict:
+        candidate_state = await self.extract_resume_profile(state)
+        candidate_state = await self.profile_candidate(candidate_state)
+        return {
+            "resume_profile": candidate_state.resume_profile,
+            "candidate_profile": candidate_state.candidate_profile,
+        }
+
+    async def prepare_role_branch(self, state: InterviewGraphState) -> dict:
+        role_state = await self.analyze_jd(state)
+        role_state = await self.research_company(role_state)
+        return {
+            "job_analysis": role_state.job_analysis,
+            "company_sources": role_state.company_sources,
+        }
+
+    async def prepare_knowledge_branch(self, state: InterviewGraphState) -> dict:
+        knowledge_state = await self.index_knowledge_base(state)
+        return {
+            "knowledge_indexing_result": knowledge_state.knowledge_indexing_result,
+        }
+
     async def run_live_turn(self, state: InterviewGraphState) -> InterviewGraphState:
         return state
 
@@ -565,12 +587,10 @@ class LangGraphInterviewWorkflow:
         graph = StateGraph(InterviewGraphState)
 
         graph.add_node("ingest_documents", self.ingest_documents)
-        graph.add_node("index_knowledge_base", self.index_knowledge_base)
-        graph.add_node("extract_resume_profile", self.extract_resume_profile)
-        graph.add_node("profile_candidate", self.profile_candidate)
-        graph.add_node("analyze_jd", self.analyze_jd)
+        graph.add_node("prepare_candidate_branch", self.prepare_candidate_branch)
+        graph.add_node("prepare_role_branch", self.prepare_role_branch)
+        graph.add_node("prepare_knowledge_branch", self.prepare_knowledge_branch)
         graph.add_node("match_candidate_to_job", self.match_candidate_to_job)
-        graph.add_node("research_company", self.research_company)
         graph.add_node("collect_interview_intel", self.collect_interview_intel)
         graph.add_node("retrieve_planning_context", self.retrieve_planning_context)
         graph.add_node("plan_interview", self.plan_interview)
@@ -578,14 +598,18 @@ class LangGraphInterviewWorkflow:
         graph.add_node("prepare_planner_revision", self.prepare_planner_revision)
 
         graph.add_edge(START, "ingest_documents")
-        graph.add_edge("ingest_documents", "index_knowledge_base")
-        graph.add_edge("index_knowledge_base", "extract_resume_profile")
-        graph.add_edge("extract_resume_profile", "profile_candidate")
-        graph.add_edge("profile_candidate", "analyze_jd")
-        graph.add_edge("analyze_jd", "match_candidate_to_job")
-        graph.add_edge("match_candidate_to_job", "research_company")
-        graph.add_edge("research_company", "collect_interview_intel")
-        graph.add_edge("collect_interview_intel", "retrieve_planning_context")
+        graph.add_edge("ingest_documents", "prepare_candidate_branch")
+        graph.add_edge("ingest_documents", "prepare_role_branch")
+        graph.add_edge("ingest_documents", "prepare_knowledge_branch")
+        graph.add_edge(
+            ["prepare_candidate_branch", "prepare_role_branch"],
+            "match_candidate_to_job",
+        )
+        graph.add_edge("match_candidate_to_job", "collect_interview_intel")
+        graph.add_edge(
+            ["prepare_knowledge_branch", "collect_interview_intel"],
+            "retrieve_planning_context",
+        )
         graph.add_edge("retrieve_planning_context", "plan_interview")
         graph.add_edge("plan_interview", "critique_interview_plan")
         graph.add_conditional_edges(

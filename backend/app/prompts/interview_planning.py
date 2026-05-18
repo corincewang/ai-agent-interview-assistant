@@ -8,15 +8,17 @@ class InterviewPlanningPromptConfig:
     target_question_count: int = 12
     self_consistency_candidates: int = 3
     max_generation_attempts: int = 3
-    min_resume_grounded_questions: int = 6
+    min_resume_grounded_questions: int = 8
     min_jd_grounded_questions: int = 6
     min_knowledge_grounded_questions: int = 4
-    project_deep_dive_count: int = 4
+    selected_project_count: int = 2
+    project_questions_per_focus: int = 3
+    project_deep_dive_count: int = 6
     tech_deep_dive_count: int = 4
-    scenario_count: int = 4
+    scenario_count: int = 2
     question_mix: tuple[str, ...] = (
-        "project_deep_dive: deep dive into projects already written in resume",
-        "project_deep_dive: deep dive into projects not explicitly written but strongly implied by resume/JD fit",
+        "project_deep_dive: select exactly two JD-relevant resume projects or internships, then ask three questions per selected focus",
+        "project_deep_dive: for each selected focus, ask one resume-bulletpoint question and two adjacent deep-dive questions not directly copied from bullets",
         "tech_deep_dive: deep dive into concrete tech stack that appears in resume (language/framework/infrastructure)",
         "scenario: role-specific scenario based on JD responsibilities and constraints",
     )
@@ -42,6 +44,8 @@ class InterviewPlanningPromptConfig:
             "min_resume_grounded_questions": self.min_resume_grounded_questions,
             "min_jd_grounded_questions": self.min_jd_grounded_questions,
             "min_knowledge_grounded_questions": self.min_knowledge_grounded_questions,
+            "selected_project_count": self.selected_project_count,
+            "project_questions_per_focus": self.project_questions_per_focus,
             "project_deep_dive_count": self.project_deep_dive_count,
             "tech_deep_dive_count": self.tech_deep_dive_count,
             "scenario_count": self.scenario_count,
@@ -98,6 +102,36 @@ def build_interview_planning_prompt() -> ChatPromptTemplate:
     )
 
 
+def build_project_focus_selection_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", _SAFETY_LAYER),
+            ("system", _PROJECT_FOCUS_SELECTION_LAYER),
+            ("human", _PROJECT_FOCUS_CONTEXT_LAYER),
+        ]
+    )
+
+
+def build_interview_question_slot_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", _SAFETY_LAYER),
+            ("system", _QUESTION_SLOT_LAYER),
+            ("human", _QUESTION_SLOT_CONTEXT_LAYER),
+        ]
+    )
+
+
+def build_interview_plan_summary_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", _SAFETY_LAYER),
+            ("system", _PLAN_SUMMARY_LAYER),
+            ("human", _PLAN_SUMMARY_CONTEXT_LAYER),
+        ]
+    )
+
+
 _SAFETY_LAYER = """
 You are an interview-planning component inside a larger AI agent system.
 
@@ -127,6 +161,7 @@ Required category distribution:
 - question_type=project_deep_dive: exactly {project_deep_dive_count} questions
 - question_type=tech_deep_dive: exactly {tech_deep_dive_count} questions
 - question_type=scenario: exactly {scenario_count} questions
+- Project rule: select exactly {selected_project_count} projects/internships; each selected focus gets exactly {project_questions_per_focus} project_deep_dive questions.
 
 Generation contract:
 - You MUST follow the provided question_blueprint as a hard slot contract.
@@ -170,7 +205,7 @@ Privately draft {self_consistency_candidates} candidate interview plans with dif
 
 Revision strategy:
 - If previous_plan_critique is provided and quality_gate_passed is false, treat revision_recommendations and low-score signals as hard optimization targets for this new draft.
-- Improve weak spots from previous_plan_critique without breaking fixed constraints (12 total questions, 4/4/4 category split, required source_scope consistency).
+- Improve weak spots from previous_plan_critique without breaking fixed constraints (12 total questions, 6/4/2 category split, required source_scope consistency).
 - If validation_feedback is provided, treat it as a hard schema contract correction request and fix those exact mismatches in this attempt.
 
 Structured output:
@@ -214,6 +249,123 @@ Previous plan critique (if any):
 
 Validation feedback from previous failed attempt (if any):
 {validation_feedback}
+""".strip()
+
+
+_PROJECT_FOCUS_SELECTION_LAYER = """
+Select exactly {selected_project_count} resume projects or internships that are the strongest fit for the target role and JD.
+
+Selection rules:
+- Choose only projects/internships supported by candidate_profile evidence.
+- Prefer projects/internships that create the most useful technical interview surface area.
+- Do not choose more than {selected_project_count}.
+- Return only the structured ProjectFocusSelection schema.
+""".strip()
+
+
+_PROJECT_FOCUS_CONTEXT_LAYER = """
+Target track:
+{target_track}
+
+Candidate profile:
+{candidate_profile}
+
+Job analysis:
+{job_analysis}
+
+Candidate-job match:
+{candidate_job_match}
+
+Retrieved knowledge-base context:
+{formatted_knowledge_context}
+""".strip()
+
+
+_QUESTION_SLOT_LAYER = """
+Generate exactly one interview question for the provided slot.
+
+Hard slot rules:
+- question_type must equal slot.question_type.
+- source_scope must be chosen from slot.allowed_source_scopes.
+- If slot.project_focus_name is present, the question must target that exact selected project or internship.
+- If slot.project_question_role is resume_bulletpoint_probe, ask about a concrete resume bulletpoint or explicitly written project claim.
+- If slot.project_question_role is adjacent_project_deep_dive, ask a plausible deep-dive question adjacent to the selected project, but do not merely restate a resume bulletpoint.
+- The question must be specific enough for a realistic technical interview and must include expected_signals, follow_up_strategy, why_asked, and evidence_chunk_ids.
+- Return only the structured InterviewQuestion schema.
+""".strip()
+
+
+_QUESTION_SLOT_CONTEXT_LAYER = """
+Session ID:
+{session_id}
+
+Target track:
+{target_track}
+
+Current slot:
+{question_slot}
+
+Selected project focuses:
+{selected_project_focuses}
+
+Already generated questions:
+{generated_questions}
+
+Candidate profile:
+{candidate_profile}
+
+Job analysis:
+{job_analysis}
+
+Candidate-job match:
+{candidate_job_match}
+
+Company sources:
+{company_sources}
+
+Interview intel:
+{interview_intel}
+
+Retrieved knowledge-base context:
+{formatted_knowledge_context}
+
+Reusable long-term question memories:
+{formatted_reusable_question_memories}
+
+Previous plan critique:
+{previous_plan_critique}
+""".strip()
+
+
+_PLAN_SUMMARY_LAYER = """
+Create concise plan-level metadata for the generated interview questions.
+
+Rules:
+- candidate_storyline should explain why this 12-question set fits the candidate and role.
+- planned_deep_dives should name the main project, tech-stack, and scenario themes.
+- rubric should be a compact dictionary of evaluation dimensions.
+- Return only the structured InterviewPlanSummary schema.
+""".strip()
+
+
+_PLAN_SUMMARY_CONTEXT_LAYER = """
+Target track:
+{target_track}
+
+Candidate profile:
+{candidate_profile}
+
+Job analysis:
+{job_analysis}
+
+Candidate-job match:
+{candidate_job_match}
+
+Selected project focuses:
+{selected_project_focuses}
+
+Generated questions:
+{generated_questions}
 """.strip()
 
 

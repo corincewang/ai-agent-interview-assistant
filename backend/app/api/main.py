@@ -194,46 +194,9 @@ async def prepare_interview_session_stream(session_id: UUID) -> StreamingRespons
     async def event_stream() -> AsyncIterator[str]:
         try:
             store.require_session(session_id)
-            yield _sse_event(
-                "progress",
-                {
-                    "message": "Running LangGraph preparation workflow",
-                    "session_id": str(session_id),
-                },
-            )
-
-            interview_plan = await interview_service.prepare_session(session_id)
-            session = store.require_session(session_id)
-            critique = session.prepared_state.get("interview_plan_critique")
-
-            yield _sse_event(
-                "plan",
-                {
-                    "session_id": str(session_id),
-                    "candidate_storyline": interview_plan.candidate_storyline,
-                    "planned_deep_dives": interview_plan.planned_deep_dives,
-                    "revised": interview_plan.revised,
-                    "revision_attempts_used": interview_plan.revision_attempts_used,
-                    "interview_plan_critique": to_jsonable(critique),
-                },
-            )
-
-            for index, question in enumerate(interview_plan.questions, start=1):
-                yield _sse_event(
-                    "question",
-                    {
-                        "index": index,
-                        "question": to_jsonable(question),
-                    },
-                )
-
-            yield _sse_event(
-                "complete",
-                {
-                    "session_id": str(session_id),
-                    "interview_plan": to_jsonable(interview_plan),
-                },
-            )
+            async for event in interview_service.prepare_session_events(session_id):
+                event_name = str(event.pop("event"))
+                yield _sse_event(event_name, event)
         except KeyError as exc:
             yield _sse_event("error", {"message": str(exc), "status_code": 404})
         except ValueError as exc:

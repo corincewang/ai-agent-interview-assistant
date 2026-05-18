@@ -122,13 +122,30 @@ export default function HomePage() {
 
         if (event.event === "question") {
           setPlan((currentPlan) => {
-            if (!currentPlan) return currentPlan;
+            if (!currentPlan) {
+              return {
+                session_id: session.session_id,
+                mode: "general_swe",
+                questions: [event.question],
+                rubric: {},
+                candidate_storyline: "",
+                planned_deep_dives: [],
+              };
+            }
+            if (event.index === 1) {
+              return {
+                ...currentPlan,
+                questions: [event.question],
+              };
+            }
             return {
               ...currentPlan,
               questions: [...currentPlan.questions, event.question],
             };
           });
-          setSelectedQuestionId((current) => current ?? event.question.id);
+          setSelectedQuestionId((current) =>
+            event.index === 1 ? event.question.id : current ?? event.question.id,
+          );
           return;
         }
 
@@ -167,7 +184,22 @@ export default function HomePage() {
         ...current,
         [selectedQuestion.id]: currentAnswer,
       }));
+      setAnswerDrafts((current) => ({
+        ...current,
+        [selectedQuestion.id]: "",
+      }));
       setFollowUp(result.follow_up_question);
+      if (!result.follow_up_question && plan) {
+        const currentIndex = plan.questions.findIndex(
+          (question) => question.id === selectedQuestion.id,
+        );
+        const nextQuestion = plan.questions
+          .slice(currentIndex + 1)
+          .find((question) => !submittedAnswers[question.id]);
+        if (nextQuestion) {
+          setSelectedQuestionId(nextQuestion.id);
+        }
+      }
       setActiveTab("interview");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Answer submission failed");
@@ -427,89 +459,112 @@ function InterviewView({
   busy: boolean;
 }) {
   const currentAnswer = selectedQuestion ? answerDrafts[selectedQuestion.id] ?? "" : "";
+  const selectedQuestionIndex = selectedQuestion
+    ? questions.findIndex((question) => question.id === selectedQuestion.id)
+    : -1;
 
   return (
-    <div className="interview-chat-shell">
-      <div className="chat-column interviewer-column">
-        <div className="chat-column-header">
-          <h2>Interviewer</h2>
-          <span className="muted">{questions.length}/12 questions</span>
+    <div className="chatbot-shell">
+      <div className="chatbot-header">
+        <div>
+          <h2>Mock Interview</h2>
+          <p>AI interviewer</p>
         </div>
-        {questions.length === 0 ? (
-          <div className="notice">Questions will appear here as the graph finishes planning.</div>
-        ) : (
-          <div className="chat-thread">
-            {questions.map((question, index) => (
-              <button
-                className={`chat-bubble interviewer-bubble ${
-                  question.id === selectedQuestionId ? "chat-bubble-active" : ""
-                }`}
-                key={question.id}
-                onClick={() => onSelectQuestion(question.id)}
-              >
-                <div className="question-meta">
-                  <span className="chip">Q{index + 1}</span>
-                  <span className="chip">{question.topic}</span>
-                  <span className="chip">{question.difficulty}</span>
-                </div>
-                <p>{question.prompt}</p>
-              </button>
-            ))}
-            {followUp ? (
-              <div className="chat-bubble interviewer-bubble">
-                <div className="question-meta">
-                  <span className="chip">Follow-up</span>
-                  <span className="chip">{followUp.topic}</span>
-                </div>
-                <p>{followUp.prompt}</p>
-              </div>
-            ) : null}
-          </div>
-        )}
+        <div className="chatbot-status">
+          <span className="online-dot" />
+          {questions.length}/12 generated
+        </div>
       </div>
 
-      <div className="chat-column candidate-column">
-        <div className="chat-column-header">
-          <h2>Candidate</h2>
-          <span className="muted">Text answer MVP</span>
-        </div>
-        {!selectedQuestion ? (
-          <div className="notice">Select or wait for a question to answer.</div>
-        ) : (
-          <>
-            {submittedAnswers[selectedQuestion.id] ? (
-              <div className="chat-bubble candidate-bubble">
-                <div className="question-meta">
-                  <span className="chip">Submitted</span>
-                </div>
-                <p>{submittedAnswers[selectedQuestion.id]}</p>
+      <div className="chatbot-thread">
+        {questions.length === 0 ? (
+          <div className="message-row assistant-row">
+            <div className="message-avatar">AI</div>
+            <div className="message-bubble assistant-message">
+              Running the preparation graph. Questions will appear here one by one.
+            </div>
+          </div>
+        ) : null}
+
+        {questions.map((question, index) => {
+          const submittedAnswer = submittedAnswers[question.id];
+          const isSelected = question.id === selectedQuestionId;
+          return (
+            <div className="chat-turn" key={question.id}>
+              <div className="message-row assistant-row">
+                <div className="message-avatar">AI</div>
+                <button
+                  className={`message-bubble assistant-message ${
+                    isSelected ? "message-active" : ""
+                  }`}
+                  onClick={() => onSelectQuestion(question.id)}
+                >
+                  <div className="question-meta">
+                    <span className="chip">Q{index + 1}</span>
+                    <span className="chip">{question.topic}</span>
+                    <span className="chip">{question.difficulty}</span>
+                  </div>
+                  <p>{question.prompt}</p>
+                </button>
               </div>
-            ) : null}
-            <div className="field">
-              <label htmlFor="answer">Answer for selected question</label>
-              <textarea
-                id="answer"
-                className="answer-box"
-                value={currentAnswer}
-                onChange={(event) => onAnswerChange(selectedQuestion.id, event.target.value)}
-              />
+
+              {submittedAnswer ? (
+                <div className="message-row candidate-row">
+                  <div className="message-bubble candidate-message">
+                    <p>{submittedAnswer}</p>
+                  </div>
+                  <div className="message-avatar candidate-avatar">You</div>
+                </div>
+              ) : null}
             </div>
-            <div className="button-row">
-              <button
-                className="btn btn-primary"
-                onClick={onSubmit}
-                disabled={busy || !currentAnswer.trim()}
-              >
-                <Send size={16} />
-                Submit Answer
-              </button>
-              <button className="btn btn-secondary" onClick={onReport} disabled={busy}>
-                <CheckCircle2 size={16} />
-                Generate Report
-              </button>
+          );
+        })}
+
+        {followUp ? (
+          <div className="message-row assistant-row">
+            <div className="message-avatar">AI</div>
+            <div className="message-bubble assistant-message">
+              <div className="question-meta">
+                <span className="chip">Follow-up</span>
+                <span className="chip">{followUp.topic}</span>
+              </div>
+              <p>{followUp.prompt}</p>
             </div>
-          </>
-        )}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="chatbot-composer">
+        <div className="composer-context">
+          {selectedQuestion
+            ? `Answering Q${selectedQuestionIndex + 1}`
+            : "Waiting for a question"}
+        </div>
+        <textarea
+          className="composer-input"
+          value={currentAnswer}
+          placeholder="Type your answer..."
+          disabled={!selectedQuestion}
+          onChange={(event) => {
+            if (selectedQuestion) {
+              onAnswerChange(selectedQuestion.id, event.target.value);
+            }
+          }}
+        />
+        <div className="composer-actions">
+          <button
+            className="btn btn-primary"
+            onClick={onSubmit}
+            disabled={busy || !selectedQuestion || !currentAnswer.trim()}
+          >
+            <Send size={16} />
+            Send
+          </button>
+          <button className="btn btn-secondary" onClick={onReport} disabled={busy}>
+            <CheckCircle2 size={16} />
+            Report
+          </button>
+        </div>
       </div>
     </div>
   );
